@@ -607,4 +607,66 @@
 
 #define DCMD_LENGTH	0x01fff		/* length mask (max = 8K - 1) */
 
+/* Fuse Bits of IXP_EXP_CFG2 */
+#define IXP4XX_FUSE_RCOMP		(1 << 0)
+#define IXP4XX_FUSE_USB_DEVICE		(1 << 1)
+#define IXP4XX_FUSE_HASH		(1 << 2)
+#define IXP4XX_FUSE_AES			(1 << 3)
+#define IXP4XX_FUSE_DES			(1 << 4)
+#define IXP4XX_FUSE_HDLC		(1 << 5)
+#define IXP4XX_FUSE_AAL			(1 << 6)
+#define IXP4XX_FUSE_HSS			(1 << 7)
+#define IXP4XX_FUSE_UTOPIA		(1 << 8)
+#define IXP4XX_FUSE_NPEB_ETH0		(1 << 9)
+#define IXP4XX_FUSE_NPEC_ETH		(1 << 10)
+#define IXP4XX_FUSE_RESET_NPEA		(1 << 11)
+#define IXP4XX_FUSE_RESET_NPEB		(1 << 12)
+#define IXP4XX_FUSE_RESET_NPEC		(1 << 13)
+#define IXP4XX_FUSE_PCI			(1 << 14)
+#define IXP4XX_FUSE_ECC_TIMESYNC	(1 << 15)
+#define IXP4XX_FUSE_UTOPIA_PHY_LIMIT	(3 << 16)
+#define IXP4XX_FUSE_USB_HOST		(1 << 18)
+#define IXP4XX_FUSE_NPEA_ETH		(1 << 19)
+#define IXP4XX_FUSE_NPEB_ETH_1_TO_3	(1 << 20)
+#define IXP4XX_FUSE_RSA			(1 << 21)
+#define IXP4XX_FUSE_XSCALE_MAX_FREQ	(3 << 22)
+#define IXP4XX_FUSE_RESERVED		(0xFF << 24)
+
+#define IXP4XX_FUSE_IXP46X_ONLY (IXP4XX_FUSE_ECC_TIMESYNC |		\
+				 IXP4XX_FUSE_USB_HOST |			\
+				 IXP4XX_FUSE_NPEA_ETH |			\
+				 IXP4XX_FUSE_NPEB_ETH_1_TO_3 |		\
+				 IXP4XX_FUSE_RSA |			\
+				 IXP4XX_FUSE_XSCALE_MAX_FREQ)
+
+#ifndef __ASSEMBLY__
+static inline int cpu_is_ixp46x(void)
+{
+#ifdef CONFIG_CPU_IXP46X
+	unsigned int processor_id;
+
+	asm("mrc p15, 0, %0, cr0, cr0, 0;" : "=r"(processor_id) :);
+
+	if ((processor_id & 0xffffff00) == 0x69054200)
+		return 1;
+#endif
+	return 0;
+}
+
+static inline u32 ixp4xx_read_fuses(void)
+{
+	unsigned int fuses = ~*IXP4XX_EXP_CFG2;
+	fuses &= ~IXP4XX_FUSE_RESERVED;
+	if (!cpu_is_ixp46x())
+		fuses &= ~IXP4XX_FUSE_IXP46X_ONLY;
+
+	return fuses;
+}
+
+static inline void ixp4xx_write_fuses(u32 value)
+{
+	*IXP4XX_EXP_CFG2 = ~value;
+}
+#endif
+
 #endif

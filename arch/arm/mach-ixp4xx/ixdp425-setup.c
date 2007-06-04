@@ -177,6 +177,29 @@ static struct platform_device ixdp425_uart = {
 	.resource		= ixdp425_uart_resources
 };
 
+/* Built-in 10/100 Ethernet MAC interfaces */
+static struct mac_plat_info ixdp425_plat_mac[] = {
+	{
+		.phy		= 0,
+		.rxq		= 3,
+	}, {
+		.phy		= 1,
+		.rxq		= 4,
+	}
+};
+
+static struct platform_device ixdp425_mac[] = {
+	{
+		.name			= "ixp4xx_eth",
+		.id			= IXP4XX_ETH_NPEB,
+		.dev.platform_data	= ixdp425_plat_mac,
+	}, {
+		.name			= "ixp4xx_eth",
+		.id			= IXP4XX_ETH_NPEC,
+		.dev.platform_data	= ixdp425_plat_mac + 1,
+	}
+};
+
 static struct platform_device *ixdp425_devices[] __initdata = {
 	&ixdp425_i2c_controller,
 	&ixdp425_flash,
@@ -184,7 +207,9 @@ static struct platform_device *ixdp425_devices[] __initdata = {
     defined(CONFIG_MTD_NAND_PLATFORM_MODULE)
 	&ixdp425_flash_nand,
 #endif
-	&ixdp425_uart
+	&ixdp425_uart,
+	&ixdp425_mac[0],
+	&ixdp425_mac[1],
 };
 
 static void __init ixdp425_init(void)
