@@ -639,34 +639,4 @@
 				 IXP4XX_FUSE_RSA |			\
 				 IXP4XX_FUSE_XSCALE_MAX_FREQ)
 
-#ifndef __ASSEMBLY__
-static inline int cpu_is_ixp46x(void)
-{
-#ifdef CONFIG_CPU_IXP46X
-	unsigned int processor_id;
-
-	asm("mrc p15, 0, %0, cr0, cr0, 0;" : "=r"(processor_id) :);
-
-	if ((processor_id & 0xffffff00) == 0x69054200)
-		return 1;
-#endif
-	return 0;
-}
-
-static inline u32 ixp4xx_read_fuses(void)
-{
-	unsigned int fuses = ~*IXP4XX_EXP_CFG2;
-	fuses &= ~IXP4XX_FUSE_RESERVED;
-	if (!cpu_is_ixp46x())
-		fuses &= ~IXP4XX_FUSE_IXP46X_ONLY;
-
-	return fuses;
-}
-
-static inline void ixp4xx_write_fuses(u32 value)
-{
-	*IXP4XX_EXP_CFG2 = ~value;
-}
-#endif
-
 #endif
