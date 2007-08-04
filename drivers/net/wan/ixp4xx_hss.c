@@ -538,7 +538,7 @@ static void hss_xmit_ready_irq(void *pdev)
 #if DEBUG_TX
 	printk(KERN_DEBUG "hss_xmit_ready_irq()\n");
 #endif
-	netif_start_queue((struct net_device *)pdev);
+	netif_wake_queue((struct net_device *)pdev);
 }
 
 static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -617,11 +617,10 @@ static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 	stats->tx_bytes += desc->pkt_len;
 
 	if (qmgr_stat_empty(txdoneq)) {
-		printk(KERN_DEBUG "netif_stop_queue() 1\n");
 		netif_stop_queue(dev);
 		/* we could miss TX ready interrupt */
 		if (!qmgr_stat_empty(txdoneq))
-			netif_start_queue(dev);
+			netif_wake_queue(dev);
 #if DEBUG_TX
 		else
 			printk(KERN_DEBUG "netif_stop_queue()\n");
