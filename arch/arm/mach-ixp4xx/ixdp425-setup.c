@@ -178,25 +178,27 @@ static struct platform_device ixdp425_uart = {
 };
 
 /* Built-in 10/100 Ethernet MAC interfaces */
-static struct mac_plat_info ixdp425_plat_mac[] = {
+static struct eth_plat_info ixdp425_plat_eth[] = {
 	{
 		.phy		= 0,
 		.rxq		= 3,
+		.txreadyq	= 20,
 	}, {
 		.phy		= 1,
 		.rxq		= 4,
+		.txreadyq	= 21,
 	}
 };
 
-static struct platform_device ixdp425_mac[] = {
+static struct platform_device ixdp425_eth[] = {
 	{
 		.name			= "ixp4xx_eth",
 		.id			= IXP4XX_ETH_NPEB,
-		.dev.platform_data	= ixdp425_plat_mac,
+		.dev.platform_data	= ixdp425_plat_eth,
 	}, {
 		.name			= "ixp4xx_eth",
 		.id			= IXP4XX_ETH_NPEC,
-		.dev.platform_data	= ixdp425_plat_mac + 1,
+		.dev.platform_data	= ixdp425_plat_eth + 1,
 	}
 };
 
@@ -208,8 +210,8 @@ static struct platform_device *ixdp425_devices[] __initdata = {
 	&ixdp425_flash_nand,
 #endif
 	&ixdp425_uart,
-	&ixdp425_mac[0],
-	&ixdp425_mac[1],
+	&ixdp425_eth[0],
+	&ixdp425_eth[1],
 };
 
 static void __init ixdp425_init(void)

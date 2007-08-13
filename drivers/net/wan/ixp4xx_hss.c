@@ -18,9 +18,11 @@
 #include <asm/arch/qmgr.h>
 
 #define DEBUG_QUEUES		0
+#define DEBUG_DESC		0
 #define DEBUG_RX		0
 #define DEBUG_TX		0
 #define DEBUG_PKT_BYTES		0
+#define DEBUG_CLOSE		0
 
 #define DRV_NAME		"ixp4xx_hss"
 
@@ -30,11 +32,12 @@
 #define PKT_NUM_PIPES		1 /* 1, 2 or 4 */
 #define PKT_PIPE_FIFO_SIZEW	4 /* total 4 dwords per HSS */
 
-#define RX_DESCS		16 /* also length of queues: RX-ready, RX */
-#define TX_DESCS		16 /* also length of queues: TX-done, TX */
+#define RX_DESCS		16 /* also length of all RX queues */
+#define TX_DESCS		16 /* also length of all TX queues */
 
 #define POOL_ALLOC_SIZE		(sizeof(struct desc) * (RX_DESCS + TX_DESCS))
 #define RX_SIZE			(HDLC_MAX_MRU + 4) /* NPE needs more space */
+#define MAX_CLOSE_WAIT		1000 /* microseconds */
 
 /* Queue IDs */
 #define HSS0_CHL_RXTRIG_QUEUE	12	/* orig size = 32 dwords */
@@ -309,12 +312,13 @@ static inline struct port* dev_to_port(struct net_device *dev)
 }
 
 
-static inline void debug_pkt(const char *func, u8 *data, int len)
+static inline void debug_pkt(struct net_device *dev, const char *func,
+			     u8 *data, int len)
 {
 #if DEBUG_PKT_BYTES
 	int i;
 
-	printk(KERN_DEBUG "%s(%i): ", func, len);
+	printk(KERN_DEBUG "%s: %s(%i) ", dev->name, func, len);
 	for (i = 0; i < len; i++) {
 		if (i >= DEBUG_PKT_BYTES)
 			break;
@@ -325,20 +329,49 @@ static inline void debug_pkt(const char *func, u8 *data, int len)
 }
 
 
-static inline void debug_desc(unsigned int queue, u32 desc_phys,
+static inline void debug_desc(unsigned int queue, u32 phys,
 			      struct desc *desc, int is_get)
 {
-#if DEBUG_QUEUES
-	const char *op = is_get ? "->" : "<-";
-
-	if (!desc_phys) {
-		printk(KERN_DEBUG "queue %2i %s NULL\n", queue, op);
-		return;
-	}
-	printk(KERN_DEBUG "queue %2i %s %X: %X %3X %3X %08X %X %X\n",
-	       queue, op, desc_phys, desc->next, desc->buf_len, desc->pkt_len,
+#if DEBUG_DESC
+	printk(KERN_DEBUG "%X: %X %3X %3X %08X %X %X\n",
+	       phys, desc->next, desc->buf_len, desc->pkt_len,
 	       desc->data, desc->status, desc->error_count);
 #endif
+}
+
+static inline void debug_queue(unsigned int queue, int is_get, u32 phys)
+{
+#if DEBUG_QUEUES
+	static struct {
+		int queue;
+		char *name;
+	} names[] = {
+		{ HSS0_PKT_TX0_QUEUE, "TX#0 " },
+		{ HSS0_PKT_TXDONE_QUEUE, "TX-done#0 " },
+		{ HSS0_PKT_RX_QUEUE, "RX#0 " },
+		{ HSS0_PKT_RXFREE0_QUEUE, "RX-free#0 " },
+		{ HSS1_PKT_TX0_QUEUE, "TX#1 " },
+		{ HSS1_PKT_TXDONE_QUEUE, "TX-done#1 " },
+		{ HSS1_PKT_RX_QUEUE, "RX#1 " },
+		{ HSS1_PKT_RXFREE0_QUEUE, "RX-free#1 " },
+	};
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(names); i++)
+		if (names[i].queue == queue)
+			break;
+
+	printk(KERN_DEBUG "Queue %i %s%s %X\n", queue,
+	       i < ARRAY_SIZE(names) ? names[i].name : "",
+	       is_get ? "->" : "<-", phys);
+#endif
+}
+
+static inline u32 queue_get_entry(unsigned int queue)
+{
+	u32 phys = qmgr_get_entry(queue);
+	debug_queue(queue, 1, phys);
+	return phys;
 }
 
 static inline int queue_get_desc(unsigned int queue, struct port *port,
@@ -347,28 +380,40 @@ static inline int queue_get_desc(unsigned int queue, struct port *port,
 	u32 phys, tab_phys, n_desc;
 	struct desc *tab;
 
-	if (!(phys = qmgr_get_entry(queue))) {
-		debug_desc(queue, phys, NULL, 1);
+	if (!(phys = queue_get_entry(queue)))
 		return -1;
-	}
 
 	BUG_ON(phys & 0x1F);
 	tab_phys = is_tx ? tx_desc_phys(port, 0) : rx_desc_phys(port, 0);
 	tab = is_tx ? tx_desc_ptr(port, 0) : rx_desc_ptr(port, 0);
 	n_desc = (phys - tab_phys) / sizeof(struct desc);
 	BUG_ON(n_desc >= (is_tx ? TX_DESCS : RX_DESCS));
-
 	debug_desc(queue, phys, &tab[n_desc], 1);
 	BUG_ON(tab[n_desc].next);
 	return n_desc;
 }
 
-static inline void queue_put_desc(unsigned int queue, u32 desc_phys,
+static inline void queue_put_desc(unsigned int queue, u32 phys,
 				  struct desc *desc)
 {
-	debug_desc(queue, desc_phys, desc, 0);
-	BUG_ON(desc_phys & 0x1F);
-	qmgr_put_entry(queue, desc_phys);
+	debug_queue(queue, 0, phys);
+	debug_desc(queue, phys, desc, 0);
+	BUG_ON(phys & 0x1F);
+	qmgr_put_entry(queue, phys);
+	BUG_ON(qmgr_stat_overflow(queue));
+}
+
+
+static inline void dma_unmap_tx(struct port *port, struct desc *desc)
+{
+#ifdef __ARMEB__
+	dma_unmap_single(&port->netdev->dev, desc->data,
+			 desc->buf_len, DMA_TO_DEVICE);
+#else
+	dma_unmap_single(&port->netdev->dev, desc->data & ~3,
+			 ALIGN((desc->data & 3) + desc->buf_len, 4),
+			 DMA_TO_DEVICE);
+#endif
 }
 
 
@@ -387,7 +432,7 @@ static void hss_rx_irq(void *pdev)
 	struct port *port = dev_to_port(dev);
 
 #if DEBUG_RX
-	printk(KERN_DEBUG "hss_rx_irq() start\n");
+	printk(KERN_DEBUG "%s: hss_rx_irq\n", dev->name);
 #endif
 	qmgr_disable_irq(queue_ids[port->id].rx);
 	netif_rx_schedule(dev);
@@ -402,7 +447,7 @@ static int hss_poll(struct net_device *dev, int *budget)
 	int quota = dev->quota, received = 0;
 
 #if DEBUG_RX
-	printk(KERN_DEBUG "hss_poll() start\n");
+	printk(KERN_DEBUG "%s: hss_poll\n", dev->name);
 #endif
 
 	while (quota) {
@@ -419,21 +464,24 @@ static int hss_poll(struct net_device *dev, int *budget)
 			*budget -= received;
 			received = 0;
 #if DEBUG_RX
-	printk(KERN_DEBUG "hss_poll() netif_rx_complete()\n");
+			printk(KERN_DEBUG "%s: hss_poll netif_rx_complete\n",
+			       dev->name);
 #endif
 			netif_rx_complete(dev);
 			qmgr_enable_irq(rxq);
 			if (!qmgr_stat_empty(rxq) &&
 			    netif_rx_reschedule(dev, 0)) {
 #if DEBUG_RX
-				printk(KERN_DEBUG "hss_poll()"
-				       " netif_rx_reschedule() successed\n");
+				printk(KERN_DEBUG "%s: hss_poll"
+				       " netif_rx_reschedule successed\n",
+				       dev->name);
 #endif
 				qmgr_disable_irq(rxq);
 				continue;
 			}
 #if DEBUG_RX
-			printk(KERN_DEBUG "hss_poll() all done\n");
+			printk(KERN_DEBUG "%s: hss_poll all done\n",
+			       dev->name);
 #endif
 			return 0; /* all work done */
 		}
@@ -441,8 +489,9 @@ static int hss_poll(struct net_device *dev, int *budget)
 		desc = rx_desc_ptr(port, n);
 
 		if (desc->error_count) /* FIXME - remove printk */
-			printk(KERN_DEBUG "hss_poll(): status 0x%02X errors"
-			       " %u\n", desc->status, desc->error_count);
+			printk(KERN_DEBUG "%s: hss_poll status 0x%02X errors"
+			       " %u\n", dev->name, desc->status,
+			       desc->error_count);
 
 		skb = NULL;
 		switch (desc->status) {
@@ -477,8 +526,9 @@ static int hss_poll(struct net_device *dev, int *budget)
 			stats->rx_errors++;
 			break;
 		default:	/* FIXME - remove printk */
-			printk(KERN_ERR "hss_poll(): status 0x%02X errors"
-			       " %u\n", desc->status, desc->error_count);
+			printk(KERN_ERR "%s: hss_poll(): status 0x%02X errors"
+			       " %u\n", dev->name, desc->status,
+			       desc->error_count);
 			stats->rx_errors++;
 		}
 
@@ -487,7 +537,6 @@ static int hss_poll(struct net_device *dev, int *budget)
 			desc->buf_len = RX_SIZE;
 			desc->pkt_len = desc->status = 0;
 			queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
-			BUG_ON(qmgr_stat_overflow(rxfreeq));
 			continue;
 		}
 
@@ -505,7 +554,7 @@ static int hss_poll(struct net_device *dev, int *budget)
 #endif
 		skb_put(skb, desc->pkt_len);
 
-		debug_pkt("hss_poll", skb->data, skb->len);
+		debug_pkt(dev, "hss_poll", skb->data, skb->len);
 
 		skb->protocol = hdlc_type_trans(skb, dev);
 		dev->last_rx = jiffies;
@@ -521,114 +570,147 @@ static int hss_poll(struct net_device *dev, int *budget)
 		desc->buf_len = RX_SIZE;
 		desc->pkt_len = 0;
 		queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
-		BUG_ON(qmgr_stat_overflow(rxfreeq));
 		quota--;
 		received++;
 	}
 	dev->quota -= received;
 	*budget -= received;
 #if DEBUG_RX
-	printk(KERN_DEBUG "hss_poll() end, not all work done\n");
+	printk(KERN_DEBUG "hss_poll(): end, not all work done\n");
 #endif
 	return 1;		/* not all work done */
 }
 
-static void hss_xmit_ready_irq(void *pdev)
+
+static void hss_txdone_irq(void *pdev)
 {
+	struct net_device *dev = pdev;
+	struct port *port = dev_to_port(dev);
+	struct net_device_stats *stats = hdlc_stats(dev);
+	int n_desc;
+
 #if DEBUG_TX
-	printk(KERN_DEBUG "hss_xmit_ready_irq()\n");
+	printk(KERN_DEBUG DRV_NAME ": hss_txdone_irq\n");
 #endif
-	netif_wake_queue((struct net_device *)pdev);
+	while ((n_desc = queue_get_desc(queue_ids[port->id].txdone,
+					port, 1)) >= 0) {
+		struct desc *desc;
+		int start;
+
+		desc = tx_desc_ptr(port, n_desc);
+
+		stats->tx_packets++;
+		stats->tx_bytes += desc->pkt_len;
+
+		dma_unmap_tx(port, desc);
+		desc->data = 0;
+#if DEBUG_TX
+		printk(KERN_DEBUG "%s: hss_txdone_irq free %p\n",
+		       port->netdev->name, port->tx_buff_tab[n_desc]);
+#endif
+#ifdef __ARMEB__
+		dev_kfree_skb_irq(port->tx_buff_tab[n_desc]);
+#else
+		kfree(port->tx_buff_tab[n_desc]);
+#endif
+		port->tx_buff_tab[n_desc] = NULL;
+
+		start = qmgr_stat_empty(port->plat->txreadyq);
+		queue_put_desc(port->plat->txreadyq,
+			       tx_desc_phys(port, n_desc), desc);
+		if (start) {
+#if DEBUG_TX
+			printk(KERN_DEBUG "%s: hss_txdone_irq xmit ready\n",
+			       port->netdev->name);
+#endif
+			netif_wake_queue(port->netdev);
+		}
+	}
 }
 
 static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
-	unsigned int txdoneq = queue_ids[port->id].txdone;
 	struct net_device_stats *stats = hdlc_stats(dev);
+	unsigned int txreadyq = port->plat->txreadyq;
+	int len, offset, bytes, n;
+	void *mem;
+	u32 phys;
 	struct desc *desc;
-	void *buff;
-	int n;
 
 #if DEBUG_TX
-	printk(KERN_DEBUG "hss_xmit() start\n");
+	printk(KERN_DEBUG "%s: hss_xmit\n", dev->name);
 #endif
+
 	if (unlikely(skb->len > HDLC_MAX_MRU)) {
 		dev_kfree_skb(skb);
 		stats->tx_errors++;
 		return NETDEV_TX_OK;
 	}
 
-	n = queue_get_desc(txdoneq, port, 1);
-	BUG_ON(n < 0);
-	desc = tx_desc_ptr(port, n);
+	debug_pkt(dev, "hss_xmit", skb->data, skb->len);
 
-	if ((buff = port->tx_buff_tab[n]) != NULL) {
-		dma_unmap_single(&dev->dev, desc->data,
-				 desc->buf_len, DMA_TO_DEVICE);
+	len = skb->len;
 #ifdef __ARMEB__
-		dev_kfree_skb(buff);
+	offset = 0; /* no need to keep alignment */
+	bytes = len;
+	mem = skb->data;
 #else
-		kfree(buff);
-#endif
+	offset = (int)skb->data & 3; /* keep 32-bit alignment */
+	bytes = ALIGN(offset + len, 4);
+	if (!(mem = kmalloc(bytes, GFP_ATOMIC))) {
+		dev_kfree_skb(skb);
+		stats->tx_dropped++;
+		return NETDEV_TX_OK;
 	}
-
-	desc->buf_len = desc->pkt_len = skb->len;
-#ifdef __ARMEB__
-	buff = skb;
-	desc->data = dma_map_single(&dev->dev, skb->data,
-				    skb->len, DMA_TO_DEVICE);
-#else
-	if ((buff = kmalloc(ALIGN(skb->len, 4), GFP_ATOMIC)) != NULL) {
-		/* buff must be dword - aligned */
-		memcpy_swab32(buff, (u32 *)skb->data, ALIGN(skb->len, 4) / 4);
-		desc->data = dma_map_single(&dev->dev, buff,
-					    ALIGN(skb->len, 4), DMA_TO_DEVICE);
-	}
+	memcpy_swab32(mem, (u32 *)((int)skb->data & ~3), bytes / 4);
 	dev_kfree_skb(skb);
 #endif
 
-	if (!buff || dma_mapping_error(desc->data)) {
+	phys = dma_map_single(&dev->dev, mem, bytes, DMA_TO_DEVICE);
+	if (dma_mapping_error(phys)) {
 #ifdef __ARMEB__
-		dev_kfree_skb(buff);
+		dev_kfree_skb(skb);
 #else
-		kfree(buff);
+		kfree(mem);
 #endif
-		desc->data = 0;
-		port->tx_buff_tab[n] = NULL;
 		stats->tx_dropped++;
-		/* put the desc back on TX-done queue */
-		queue_put_desc(txdoneq, tx_desc_phys(port, n), desc);
 		return NETDEV_TX_OK;
 	}
 
-	port->tx_buff_tab[n] = buff;
+	n = queue_get_desc(txreadyq, port, 1);
+	BUG_ON(n < 0);
+	desc = tx_desc_ptr(port, n);
 
 #ifdef __ARMEB__
-	debug_pkt("hss_xmit", skb->data, desc->pkt_len);
+	port->tx_buff_tab[n] = skb;
 #else
-	debug_pkt("hss_xmit", buff, desc->pkt_len);
+	port->tx_buff_tab[n] = mem;
 #endif
+	desc->data = phys + offset;
+	desc->buf_len = desc->pkt_len = len;
+
 	wmb();
 	queue_put_desc(queue_ids[port->id].tx, tx_desc_phys(port, n), desc);
-	BUG_ON(qmgr_stat_overflow(queue_ids[port->id].tx));
 	dev->trans_start = jiffies;
-	stats->tx_packets++;
-	stats->tx_bytes += desc->pkt_len;
 
-	if (qmgr_stat_empty(txdoneq)) {
+	if (qmgr_stat_empty(txreadyq)) {
+#if DEBUG_TX
+		printk(KERN_DEBUG "%s: hss_xmit queue full\n", dev->name);
+#endif
 		netif_stop_queue(dev);
 		/* we could miss TX ready interrupt */
-		if (!qmgr_stat_empty(txdoneq))
-			netif_wake_queue(dev);
+		if (!qmgr_stat_empty(txreadyq)) {
 #if DEBUG_TX
-		else
-			printk(KERN_DEBUG "netif_stop_queue()\n");
+			printk(KERN_DEBUG "%s: hss_xmit ready again\n",
+			       dev->name);
 #endif
+			netif_wake_queue(dev);
+		}
 	}
 
 #if DEBUG_TX
-	printk(KERN_DEBUG "hss_xmit() end\n");
+	printk(KERN_DEBUG "%s: hss_xmit end\n", dev->name);
 #endif
 	return NETDEV_TX_OK;
 }
@@ -650,17 +732,25 @@ static int request_queues(struct port *port)
 	if (err)
 		goto rel_rx;
 
-	err = qmgr_request_queue(queue_ids[port->id].txdone, TX_DESCS, 0, 0);
+	err = qmgr_request_queue(port->plat->txreadyq, TX_DESCS, 0, 0);
 	if (err)
 		goto rel_tx;
+
+	err = qmgr_request_queue(queue_ids[port->id].txdone, TX_DESCS, 0, 0);
+	if (err)
+		goto rel_txready;
 	return 0;
 
+rel_txready:
+	qmgr_release_queue(port->plat->txreadyq);
 rel_tx:
 	qmgr_release_queue(queue_ids[port->id].tx);
 rel_rx:
 	qmgr_release_queue(queue_ids[port->id].rx);
 rel_rxfree:
 	qmgr_release_queue(queue_ids[port->id].rxfree);
+	printk(KERN_DEBUG "%s: unable to request hardware queues\n",
+	       port->netdev->name);
 	return err;
 }
 
@@ -670,6 +760,7 @@ static void release_queues(struct port *port)
 	qmgr_release_queue(queue_ids[port->id].rx);
 	qmgr_release_queue(queue_ids[port->id].txdone);
 	qmgr_release_queue(queue_ids[port->id].tx);
+	qmgr_release_queue(port->plat->txreadyq);
 }
 
 static int init_queues(struct port *port)
@@ -711,32 +802,14 @@ static int init_queues(struct port *port)
 			desc->data = 0;
 			return -EIO;
 		}
-		queue_put_desc(queue_ids[port->id].rxfree,
-			       rx_desc_phys(port, i), desc);
-		BUG_ON(qmgr_stat_overflow(queue_ids[port->id].rxfree));
 	}
 
-	/* Setup TX-done queue */
-	for (i = 0; i < TX_DESCS; i++) {
-		queue_put_desc(queue_ids[port->id].txdone,
-			       tx_desc_phys(port, i), tx_desc_ptr(port, i));
-		BUG_ON(qmgr_stat_overflow(queue_ids[port->id].txdone));
-	}
 	return 0;
 }
 
 static void destroy_queues(struct port *port)
 {
 	int i;
-
-	while (queue_get_desc(queue_ids[port->id].rxfree, port, 0) >= 0)
-		/* nothing to do here */;
-	while (queue_get_desc(queue_ids[port->id].rx, port, 0) >= 0)
-		/* nothing to do here */;
-	while (queue_get_desc(queue_ids[port->id].tx, port, 1) >= 0)
-		/* nothing to do here */;
-	while (queue_get_desc(queue_ids[port->id].txdone, port, 1) >= 0)
-		/* nothing to do here */;
 
 	if (port->desc_tab) {
 		for (i = 0; i < RX_DESCS; i++) {
@@ -759,10 +832,7 @@ static void destroy_queues(struct port *port)
 			void *buff = port->tx_buff_tab[i];
 			if (buff) {
 				if (desc->data)
-					dma_unmap_single(&port->netdev->dev,
-							 desc->data,
-							 desc->buf_len,
-							 DMA_TO_DEVICE);
+					dma_unmap_tx(port, desc);
 #ifdef __ARMEB__
 				dev_kfree_skb(buff);
 #else
@@ -779,7 +849,6 @@ static void destroy_queues(struct port *port)
 		dma_pool = NULL;
 	}
 }
-
 
 static int hss_open(struct net_device *dev)
 {
@@ -929,18 +998,26 @@ static int hss_open(struct net_device *dev)
 	if ((err = npe_send_message(npe, &msg, "HSS_ENABLE_PKT_PIPE") != 0))
 		goto err_destroy_queues;
 
+	/* Populate queues with buffers, no failure after this point */
+	for (i = 0; i < TX_DESCS; i++)
+		queue_put_desc(port->plat->txreadyq,
+			       tx_desc_phys(port, i), tx_desc_ptr(port, i));
+
+	for (i = 0; i < RX_DESCS; i++)
+		queue_put_desc(queue_ids[port->id].rxfree,
+			       rx_desc_phys(port, i), rx_desc_ptr(port, i));
+
 	netif_start_queue(dev);
 
 	qmgr_set_irq(queue_ids[port->id].rx, QUEUE_IRQ_SRC_NOT_EMPTY,
 		     hss_rx_irq, dev);
-	qmgr_enable_irq(queue_ids[port->id].rx);
 
 	qmgr_set_irq(queue_ids[port->id].txdone, QUEUE_IRQ_SRC_NOT_EMPTY,
-		     hss_xmit_ready_irq, dev);
+		     hss_txdone_irq, dev);
 	qmgr_enable_irq(queue_ids[port->id].txdone);
 
 	ports_open++;
-	netif_rx_schedule(dev); /* FIXME */
+	netif_rx_schedule(dev); /* we may already have RX data, enables IRQ */
 	return 0;
 
 err_destroy_queues:
@@ -959,10 +1036,11 @@ static int hss_close(struct net_device *dev)
 	struct port *port = dev_to_port(dev);
 	struct npe *npe = port->npe;
 	struct msg msg;
+	int buffs = RX_DESCS; /* allocated RX buffers */
+	int i;
 
 	ports_open--;
 	qmgr_disable_irq(queue_ids[port->id].rx);
-	qmgr_disable_irq(queue_ids[port->id].txdone);
 	netif_stop_queue(dev);
 
 	memset(&msg, 0, sizeof(msg));
@@ -974,6 +1052,35 @@ static int hss_close(struct net_device *dev)
 		/* The upper level would ignore the error anyway */
 	}
 
+	while (queue_get_desc(queue_ids[port->id].rxfree, port, 0) >= 0)
+		buffs--;
+	while (queue_get_desc(queue_ids[port->id].rx, port, 0) >= 0)
+		buffs--;
+
+	if (buffs)
+		printk(KERN_CRIT "%s: unable to drain RX queue, %i buffer(s)"
+		       " left in NPE\n", dev->name, buffs);
+
+	buffs = TX_DESCS;
+	while (queue_get_desc(queue_ids[port->id].tx, port, 1) >= 0)
+		buffs--; /* cancel TX */
+
+	i = 0;
+	do {
+		while (queue_get_desc(port->plat->txreadyq, port, 1) >= 0)
+			buffs--;
+		if (!buffs)
+			break;
+	} while (++i < MAX_CLOSE_WAIT);
+
+	if (buffs)
+		printk(KERN_CRIT "%s: unable to drain TX queue, %i buffer(s) "
+		       "left in NPE\n", dev->name, buffs);
+#if DEBUG_CLOSE
+	if (!buffs)
+		printk(KERN_DEBUG "Draining TX queues took %i cycles\n", i);
+#endif
+	qmgr_disable_irq(queue_ids[port->id].txdone);
 	destroy_queues(port);
 	release_queues(port);
 

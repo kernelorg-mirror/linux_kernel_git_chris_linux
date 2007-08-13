@@ -77,8 +77,7 @@ extern unsigned long ixp4xx_exp_bus_size;
 
 /*
  * The IXP4xx chips do not have an I2C unit, so GPIO lines are just
- * used to 
- * Used as platform_data to provide GPIO pin information to the ixp42x
+ * used as platform_data to provide GPIO pin information to the ixp42x
  * I2C driver.
  */
 struct ixp4xx_i2c_pins {
@@ -91,9 +90,10 @@ struct ixp4xx_i2c_pins {
 #define IXP4XX_ETH_NPEC		0x20
 
 /* Information about built-in Ethernet MAC interfaces */
-struct mac_plat_info {
+struct eth_plat_info {
 	u8 phy;		/* MII PHY ID, 0 - 31 */
 	u8 rxq;		/* configurable, currently 0 - 31 only */
+	u8 txreadyq;
 	u8 hwaddr[6];
 };
 
@@ -103,6 +103,7 @@ struct hss_plat_info {
 	int (*open)(int port, void *pdev,
 		    void (*set_carrier_cb)(void *pdev, int carrier));
 	void (*close)(int port, void *pdev);
+	u8 txreadyq;
 };
 
 /*
