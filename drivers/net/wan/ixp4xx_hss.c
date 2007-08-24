@@ -329,8 +329,7 @@ static inline void debug_pkt(struct net_device *dev, const char *func,
 }
 
 
-static inline void debug_desc(unsigned int queue, u32 phys,
-			      struct desc *desc, int is_get)
+static inline void debug_desc(u32 phys, struct desc *desc)
 {
 #if DEBUG_DESC
 	printk(KERN_DEBUG "%X: %X %3X %3X %08X %X %X\n",
@@ -388,7 +387,7 @@ static inline int queue_get_desc(unsigned int queue, struct port *port,
 	tab = is_tx ? tx_desc_ptr(port, 0) : rx_desc_ptr(port, 0);
 	n_desc = (phys - tab_phys) / sizeof(struct desc);
 	BUG_ON(n_desc >= (is_tx ? TX_DESCS : RX_DESCS));
-	debug_desc(queue, phys, &tab[n_desc], 1);
+	debug_desc(phys, &tab[n_desc]);
 	BUG_ON(tab[n_desc].next);
 	return n_desc;
 }
@@ -397,7 +396,7 @@ static inline void queue_put_desc(unsigned int queue, u32 phys,
 				  struct desc *desc)
 {
 	debug_queue(queue, 0, phys);
-	debug_desc(queue, phys, desc, 0);
+	debug_desc(phys, desc);
 	BUG_ON(phys & 0x1F);
 	qmgr_put_entry(queue, phys);
 	BUG_ON(qmgr_stat_overflow(queue));
