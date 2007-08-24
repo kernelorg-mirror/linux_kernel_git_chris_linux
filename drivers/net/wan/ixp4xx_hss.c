@@ -219,15 +219,21 @@
 #define ERR_DISCONNECTING	7 /* disconnect is in progress */
 
 
+#ifdef __ARMEB__
+typedef struct sk_buff buffer_t;
+#define free_buffer dev_kfree_skb
+#define free_buffer_irq dev_kfree_skb_irq
+#else
+typedef void buffer_t;
+#define free_buffer kfree
+#define free_buffer_irq kfree
+#endif
+
 struct port {
 	struct npe *npe;
 	struct net_device *netdev;
 	struct hss_plat_info *plat;
-#ifdef __ARMEB__
-	struct sk_buff *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
-#else
-	void *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
-#endif
+	buffer_t *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
 	struct desc *desc_tab;	/* coherent */
 	u32 desc_tab_phys;
 	sync_serial_settings settings;
@@ -602,16 +608,11 @@ static void hss_txdone_irq(void *pdev)
 		stats->tx_bytes += desc->pkt_len;
 
 		dma_unmap_tx(port, desc);
-		desc->data = 0;
 #if DEBUG_TX
 		printk(KERN_DEBUG "%s: hss_txdone_irq free %p\n",
 		       port->netdev->name, port->tx_buff_tab[n_desc]);
 #endif
-#ifdef __ARMEB__
-		dev_kfree_skb_irq(port->tx_buff_tab[n_desc]);
-#else
-		kfree(port->tx_buff_tab[n_desc]);
-#endif
+		free_buffer_irq(port->tx_buff_tab[n_desc]);
 		port->tx_buff_tab[n_desc] = NULL;
 
 		start = qmgr_stat_empty(port->plat->txreadyq);
@@ -781,26 +782,25 @@ static int init_queues(struct port *port)
 	/* Setup RX buffers */
 	for (i = 0; i < RX_DESCS; i++) {
 		struct desc *desc = rx_desc_ptr(port, i);
+		buffer_t *buff;
 		void *data;
 #ifdef __ARMEB__
-		struct sk_buff *skb;
-
-		if (!(skb = netdev_alloc_skb(port->netdev, RX_SIZE)))
+		if (!(buff = netdev_alloc_skb(port->netdev, RX_SIZE)))
 			return -ENOMEM;
-		port->rx_buff_tab[i] = skb;
-		data = skb->data;
+		data = buff->data;
 #else
-		if (!(data = kmalloc(RX_SIZE, GFP_KERNEL)))
+		if (!(buff = kmalloc(RX_SIZE, GFP_KERNEL)))
 			return -ENOMEM;
-		port->rx_buff_tab[i] = data;
+		data = buff;
 #endif
 		desc->buf_len = RX_SIZE;
 		desc->data = dma_map_single(&port->netdev->dev, data,
 					    RX_SIZE, DMA_FROM_DEVICE);
 		if (dma_mapping_error(desc->data)) {
-			desc->data = 0;
+			free_buffer(buff);
 			return -EIO;
 		}
+		port->rx_buff_tab[i] = buff;
 	}
 
 	return 0;
@@ -813,30 +813,20 @@ static void destroy_queues(struct port *port)
 	if (port->desc_tab) {
 		for (i = 0; i < RX_DESCS; i++) {
 			struct desc *desc = rx_desc_ptr(port, i);
-			void *buff = port->rx_buff_tab[i];
+			buffer_t *buff = port->rx_buff_tab[i];
 			if (buff) {
-				if (desc->data)
-					dma_unmap_single(&port->netdev->dev,
-							 desc->data, RX_SIZE,
-							 DMA_FROM_DEVICE);
-#ifdef __ARMEB__
-				dev_kfree_skb(buff);
-#else
-				kfree(buff);
-#endif
+				dma_unmap_single(&port->netdev->dev,
+						 desc->data, RX_SIZE,
+						 DMA_FROM_DEVICE);
+				free_buffer(buff);
 			}
 		}
 		for (i = 0; i < TX_DESCS; i++) {
 			struct desc *desc = tx_desc_ptr(port, i);
-			void *buff = port->tx_buff_tab[i];
+			buffer_t *buff = port->tx_buff_tab[i];
 			if (buff) {
-				if (desc->data)
-					dma_unmap_tx(port, desc);
-#ifdef __ARMEB__
-				dev_kfree_skb(buff);
-#else
-				kfree(buff);
-#endif
+				dma_unmap_tx(port, desc);
+				free_buffer(buff);
 			}
 		}
 		dma_pool_free(dma_pool, port->desc_tab, port->desc_tab_phys);
