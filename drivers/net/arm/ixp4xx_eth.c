@@ -50,8 +50,7 @@
 #define TX_DESCS		16 /* also length of all TX queues */
 #define TXDONE_QUEUE_LEN	64 /* dwords */
 
-#define POOL_ALLOC_SIZE		(sizeof(struct desc) * max(RX_DESCS,	\
-							   TXDONE_QUEUE_LEN))
+#define POOL_ALLOC_SIZE		(sizeof(struct desc) * (RX_DESCS + TX_DESCS))
 #define REGS_SIZE		0x1000
 #define MAX_MRU			1536 /* 0x600 */
 
