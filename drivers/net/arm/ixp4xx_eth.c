@@ -596,21 +596,23 @@ static void eth_txdone_irq(void *unused)
 		desc = tx_desc_ptr(port, n_desc);
 		debug_desc(phys, desc);
 
-		port->stat.tx_packets++;
-		port->stat.tx_bytes += desc->pkt_len;
+		if (port->tx_buff_tab[n_desc]) { /* not the draining packet */
+			port->stat.tx_packets++;
+			port->stat.tx_bytes += desc->pkt_len;
 
-		dma_unmap_tx(port, desc);
-		desc->data = 0;
+			dma_unmap_tx(port, desc);
+			desc->data = 0;
 #if DEBUG_TX
-		printk(KERN_DEBUG "%s: eth_txdone_irq free %p\n",
-		       port->netdev->name, port->tx_buff_tab[n_desc]);
+			printk(KERN_DEBUG "%s: eth_txdone_irq free %p\n",
+			       port->netdev->name, port->tx_buff_tab[n_desc]);
 #endif
 #ifdef __ARMEB__
-		dev_kfree_skb_irq(port->tx_buff_tab[n_desc]);
+			dev_kfree_skb_irq(port->tx_buff_tab[n_desc]);
 #else
-		kfree(port->tx_buff_tab[n_desc]);
+			kfree(port->tx_buff_tab[n_desc]);
 #endif
-		port->tx_buff_tab[n_desc] = NULL;
+			port->tx_buff_tab[n_desc] = NULL;
+		}
 
 		start = qmgr_stat_empty(port->plat->txreadyq);
 		queue_put_desc(port->plat->txreadyq, phys, desc);
