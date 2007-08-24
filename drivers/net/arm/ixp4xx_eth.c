@@ -321,6 +321,19 @@ static void mdio_thread(struct work_struct *work)
 
 	if (mii_check_media(&port->mii, 1, 0))
 		eth_set_duplex(port);
+	if (port->mii.force_media) { /* mii_check_media() doesn't work */
+		struct net_device *dev = port->netdev;
+		int cur_link = mii_link_ok(&port->mii);
+		int prev_link = netif_carrier_ok(dev);
+
+		if (cur_link && !prev_link) {
+			printk(KERN_INFO "%s: link up\n", dev->name);
+			netif_carrier_on(dev);
+		} else if (prev_link && !cur_link) {
+			printk(KERN_INFO "%s: link down\n", dev->name);
+			netif_carrier_off(dev);
+		}
+	}
 	schedule_delayed_work(&port->mdio_thread, MDIO_INTERVAL);
 }
 
