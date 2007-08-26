@@ -343,18 +343,16 @@ static void eth_set_duplex(struct port *port)
 }
 
 
-static void mdio_thread(struct work_struct *work)
+static void phy_check_media(struct port *port, int init)
 {
-	struct port *port = container_of(work, struct port, mdio_thread.work);
-
-	if (mii_check_media(&port->mii, 1, 0))
+	if (mii_check_media(&port->mii, 1, init))
 		eth_set_duplex(port);
 	if (port->mii.force_media) { /* mii_check_media() doesn't work */
 		struct net_device *dev = port->netdev;
 		int cur_link = mii_link_ok(&port->mii);
 		int prev_link = netif_carrier_ok(dev);
 
-		if (cur_link && !prev_link) {
+		if (!prev_link && cur_link) {
 			printk(KERN_INFO "%s: link up\n", dev->name);
 			netif_carrier_on(dev);
 		} else if (prev_link && !cur_link) {
@@ -362,6 +360,14 @@ static void mdio_thread(struct work_struct *work)
 			netif_carrier_off(dev);
 		}
 	}
+}
+
+
+static void mdio_thread(struct work_struct *work)
+{
+	struct port *port = container_of(work, struct port, mdio_thread.work);
+
+	phy_check_media(port, 0);
 	schedule_delayed_work(&port->mdio_thread, MDIO_INTERVAL);
 }
 
@@ -1001,8 +1007,7 @@ static int eth_open(struct net_device *dev)
 	__raw_writel(0, &port->regs->rx_control[1]);
 	__raw_writel(DEFAULT_RX_CNTRL0, &port->regs->rx_control[0]);
 
-	if (mii_check_media(&port->mii, 1, 1))
-		eth_set_duplex(port);
+	phy_check_media(port, 1);
 	eth_set_mcast_list(dev);
 	netif_start_queue(dev);
 	schedule_delayed_work(&port->mdio_thread, MDIO_INTERVAL);
