@@ -56,6 +56,7 @@
 
 #define MDIO_INTERVAL		(3 * HZ)
 #define MAX_MDIO_RETRIES	100 /* microseconds, typically 30 cycles */
+#define MAX_MII_RESET_RETRIES	100 /* mdio_read() cycles, typically 4 */
 #define MAX_CLOSE_WAIT		1000 /* microseconds, typically 2-3 cycles */
 
 #define NPE_ID(port_id)		((port_id) >> 4)
@@ -308,6 +309,27 @@ static void mdio_write(struct net_device *dev, int phy_id, int location,
 	spin_lock_irqsave(&mdio_lock, flags);
 	mdio_cmd(dev, phy_id, location, 1, val);
 	spin_unlock_irqrestore(&mdio_lock, flags);
+}
+
+static void phy_reset(struct net_device *dev, int phy_id)
+{
+	int cycles = 0;
+	u16 val = mdio_read(dev, phy_id, MII_BMCR);
+	mdio_write(dev, phy_id, MII_BMCR, val | BMCR_RESET);
+	
+	while (cycles < MAX_MII_RESET_RETRIES) {
+		if (!(mdio_read(dev, phy_id, MII_BMCR) & BMCR_RESET)) {
+#if DEBUG_MDIO
+			printk(KERN_DEBUG "%s: phy_reset() took %i cycles\n",
+			       dev->name, cycles);
+#endif
+			return;
+		}
+		udelay(1);
+		cycles++;
+	}
+
+	printk(KERN_ERR "%s: MII reset failed\n", dev->name);
 }
 
 static void eth_set_duplex(struct port *port)
@@ -913,6 +935,9 @@ static int eth_open(struct net_device *dev)
 		}
 	}
 
+	mdio_write(dev, port->plat->phy, MII_BMCR,
+		   mdio_read(dev, port->plat->phy, MII_BMCR) & ~BMCR_PDOWN);
+
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = NPE_VLAN_SETRXQOSENTRY;
 	msg.eth_id = port->id;
@@ -1069,6 +1094,9 @@ static int eth_close(struct net_device *dev)
 		printk(KERN_CRIT "%s: unable to disable loopback\n",
 		       dev->name);
 
+	mdio_write(dev, port->plat->phy, MII_BMCR,
+		   mdio_read(dev, port->plat->phy, MII_BMCR) | BMCR_PDOWN);
+
 	if (!ports_open)
 		qmgr_disable_irq(TXDONE_QUEUE);
 	cancel_rearming_delayed_work(&port->mdio_thread);
@@ -1157,10 +1185,14 @@ static int __devinit eth_init_one(struct platform_device *pdev)
 	port->mii.phy_id_mask = 0x1F;
 	port->mii.reg_num_mask = 0x1F;
 
-	INIT_DELAYED_WORK(&port->mdio_thread, mdio_thread);
-
 	printk(KERN_INFO "%s: MII PHY %i on %s\n", dev->name, plat->phy,
 	       npe_name(port->npe));
+
+	phy_reset(dev, plat->phy);
+	mdio_write(dev, plat->phy, MII_BMCR,
+		   mdio_read(dev, plat->phy, MII_BMCR) | BMCR_PDOWN);
+
+	INIT_DELAYED_WORK(&port->mdio_thread, mdio_thread);
 	return 0;
 
 err_unreg:
