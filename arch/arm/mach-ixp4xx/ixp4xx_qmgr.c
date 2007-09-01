@@ -8,9 +8,10 @@
  * as published by the Free Software Foundation.
  */
 
+#include <linux/ioport.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
-#include <asm/io.h>
+#include <linux/module.h>
 #include <asm/arch/qmgr.h>
 
 #define DEBUG		0
