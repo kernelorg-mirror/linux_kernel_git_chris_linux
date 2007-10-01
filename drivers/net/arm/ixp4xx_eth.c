@@ -168,6 +168,7 @@ struct port {
 	struct desc *desc_tab;	/* coherent */
 	u32 desc_tab_phys;
 	int id;			/* logical port ID */
+	u16 mii_bmcr;
 };
 
 /* NPE message structure */
@@ -313,9 +314,10 @@ static void mdio_write(struct net_device *dev, int phy_id, int location,
 
 static void phy_reset(struct net_device *dev, int phy_id)
 {
+	struct port *port = netdev_priv(dev);
 	int cycles = 0;
-	u16 val = mdio_read(dev, phy_id, MII_BMCR);
-	mdio_write(dev, phy_id, MII_BMCR, val | BMCR_RESET);
+
+	mdio_write(dev, phy_id, MII_BMCR, port->mii_bmcr | BMCR_RESET);
 	
 	while (cycles < MAX_MII_RESET_RETRIES) {
 		if (!(mdio_read(dev, phy_id, MII_BMCR) & BMCR_RESET)) {
@@ -941,8 +943,7 @@ static int eth_open(struct net_device *dev)
 		}
 	}
 
-	mdio_write(dev, port->plat->phy, MII_BMCR,
-		   mdio_read(dev, port->plat->phy, MII_BMCR) & ~BMCR_PDOWN);
+	mdio_write(dev, port->plat->phy, MII_BMCR, port->mii_bmcr);
 
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = NPE_VLAN_SETRXQOSENTRY;
@@ -1099,8 +1100,10 @@ static int eth_close(struct net_device *dev)
 		printk(KERN_CRIT "%s: unable to disable loopback\n",
 		       dev->name);
 
+	port->mii_bmcr = mdio_read(dev, port->plat->phy, MII_BMCR) &
+		~(BMCR_RESET | BMCR_PDOWN); /* may have been altered */
 	mdio_write(dev, port->plat->phy, MII_BMCR,
-		   mdio_read(dev, port->plat->phy, MII_BMCR) | BMCR_PDOWN);
+		   port->mii_bmcr | BMCR_PDOWN);
 
 	if (!ports_open)
 		qmgr_disable_irq(TXDONE_QUEUE);
@@ -1194,8 +1197,9 @@ static int __devinit eth_init_one(struct platform_device *pdev)
 	       npe_name(port->npe));
 
 	phy_reset(dev, plat->phy);
-	mdio_write(dev, plat->phy, MII_BMCR,
-		   mdio_read(dev, plat->phy, MII_BMCR) | BMCR_PDOWN);
+	port->mii_bmcr = mdio_read(dev, plat->phy, MII_BMCR) &
+		~(BMCR_RESET | BMCR_PDOWN);
+	mdio_write(dev, plat->phy, MII_BMCR, port->mii_bmcr | BMCR_PDOWN);
 
 	INIT_DELAYED_WORK(&port->mdio_thread, mdio_thread);
 	return 0;
