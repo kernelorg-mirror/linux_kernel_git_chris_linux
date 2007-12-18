@@ -10,10 +10,10 @@
 
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/hdlc.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>
 #include <asm/arch/npe.h>
 #include <asm/arch/qmgr.h>
 
@@ -1230,8 +1230,9 @@ static struct platform_driver drv = {
 
 static int __init hss_init_module(void)
 {
-	if ((ixp4xx_read_fuses() & (IXP4XX_FUSE_HDLC | IXP4XX_FUSE_HSS)) !=
-	    (IXP4XX_FUSE_HDLC | IXP4XX_FUSE_HSS))
+	if ((ixp4xx_read_feature_bits() &
+	     (IXP4XX_FEATURE_HDLC | IXP4XX_FEATURE_HSS)) !=
+	    (IXP4XX_FEATURE_HDLC | IXP4XX_FEATURE_HSS))
 		return -ENOSYS;
 	return platform_driver_register(&drv);
 }
