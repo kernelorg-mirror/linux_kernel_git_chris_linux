@@ -1,9 +1,7 @@
 #ifndef __IXP4XX_NPE_H
 #define __IXP4XX_NPE_H
 
-#include <linux/etherdevice.h>
 #include <linux/kernel.h>
-#include <asm/io.h>
 
 extern const char *npe_names[];
 

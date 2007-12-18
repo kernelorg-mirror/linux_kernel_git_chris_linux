@@ -14,13 +14,13 @@
  *   Thanks, Christian.
  */
 
+#include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/firmware.h>
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-#include <asm/delay.h>
-#include <asm/io.h>
 #include <asm/arch/npe.h>
 
 #define DEBUG_MSG			0
@@ -131,7 +131,7 @@ const char *npe_names[] = { "NPE-A", "NPE-B", "NPE-C" };
 
 static struct {
 	u32 reg, val;
-}ecs_reset[] = {
+} ecs_reset[] = {
 	{ ECS_BG_CTXT_REG_0,	0xA0000000 },
 	{ ECS_BG_CTXT_REG_1,	0x01000000 },
 	{ ECS_BG_CTXT_REG_2,	0x00008000 },
@@ -382,12 +382,13 @@ static int npe_reset(struct npe *npe)
 	__raw_writel(0, &npe->regs->action_points[3]);
 	__raw_writel(0, &npe->regs->watch_count);
 
-	val = ixp4xx_read_fuses();
+	val = ixp4xx_read_feature_bits();
 	/* reset the NPE */
-	ixp4xx_write_fuses(val & ~(IXP4XX_FUSE_RESET_NPEA << npe->id));
+	ixp4xx_write_feature_bits(val &
+				  ~(IXP4XX_FEATURE_RESET_NPEA << npe->id));
 	for (i = 0; i < MAX_RETRIES; i++) {
-		if (!(ixp4xx_read_fuses() &
-		      (IXP4XX_FUSE_RESET_NPEA << npe->id)))
+		if (!(ixp4xx_read_feature_bits() &
+		      (IXP4XX_FEATURE_RESET_NPEA << npe->id)))
 			break;	/* reset completed */
 		udelay(1);
 	}
@@ -395,9 +396,11 @@ static int npe_reset(struct npe *npe)
 		return -ETIMEDOUT;
 
 	/* deassert reset */
-	ixp4xx_write_fuses(val | (IXP4XX_FUSE_RESET_NPEA << npe->id));
+	ixp4xx_write_feature_bits(val |
+				  (IXP4XX_FEATURE_RESET_NPEA << npe->id));
 	for (i = 0; i < MAX_RETRIES; i++) {
-		if (ixp4xx_read_fuses() & (IXP4XX_FUSE_RESET_NPEA << npe->id))
+		if (ixp4xx_read_feature_bits() &
+		    (IXP4XX_FEATURE_RESET_NPEA << npe->id))
 			break;	/* NPE is back alive */
 		udelay(1);
 	}
@@ -689,7 +692,8 @@ static int __init npe_init_module(void)
 
 	for (i = 0; i < NPE_COUNT; i++) {
 		struct npe *npe = &npe_tab[i];
-		if (!(ixp4xx_read_fuses() & (IXP4XX_FUSE_RESET_NPEA << i)))
+		if (!(ixp4xx_read_feature_bits() &
+		      (IXP4XX_FEATURE_RESET_NPEA << i)))
 			continue; /* NPE already disabled or not present */
 		if (!(npe->mem_res = request_mem_region(npe->regs_phys,
 							REGS_SIZE,

@@ -15,10 +15,6 @@
  *
  */
 
-#ifndef __ASM_ARCH_HARDWARE_H__
-#error "Do not include this directly, instead #include <asm/hardware.h>"
-#endif
-
 #ifndef _ASM_ARM_IXP4XX_H_
 #define _ASM_ARM_IXP4XX_H_
 
@@ -607,36 +603,36 @@
 
 #define DCMD_LENGTH	0x01fff		/* length mask (max = 8K - 1) */
 
-/* Fuse Bits of IXP_EXP_CFG2 */
-#define IXP4XX_FUSE_RCOMP		(1 << 0)
-#define IXP4XX_FUSE_USB_DEVICE		(1 << 1)
-#define IXP4XX_FUSE_HASH		(1 << 2)
-#define IXP4XX_FUSE_AES			(1 << 3)
-#define IXP4XX_FUSE_DES			(1 << 4)
-#define IXP4XX_FUSE_HDLC		(1 << 5)
-#define IXP4XX_FUSE_AAL			(1 << 6)
-#define IXP4XX_FUSE_HSS			(1 << 7)
-#define IXP4XX_FUSE_UTOPIA		(1 << 8)
-#define IXP4XX_FUSE_NPEB_ETH0		(1 << 9)
-#define IXP4XX_FUSE_NPEC_ETH		(1 << 10)
-#define IXP4XX_FUSE_RESET_NPEA		(1 << 11)
-#define IXP4XX_FUSE_RESET_NPEB		(1 << 12)
-#define IXP4XX_FUSE_RESET_NPEC		(1 << 13)
-#define IXP4XX_FUSE_PCI			(1 << 14)
-#define IXP4XX_FUSE_ECC_TIMESYNC	(1 << 15)
-#define IXP4XX_FUSE_UTOPIA_PHY_LIMIT	(3 << 16)
-#define IXP4XX_FUSE_USB_HOST		(1 << 18)
-#define IXP4XX_FUSE_NPEA_ETH		(1 << 19)
-#define IXP4XX_FUSE_NPEB_ETH_1_TO_3	(1 << 20)
-#define IXP4XX_FUSE_RSA			(1 << 21)
-#define IXP4XX_FUSE_XSCALE_MAX_FREQ	(3 << 22)
-#define IXP4XX_FUSE_RESERVED		(0xFF << 24)
+/* "fuse" bits of IXP_EXP_CFG2 */
+#define IXP4XX_FEATURE_RCOMP		(1 << 0)
+#define IXP4XX_FEATURE_USB_DEVICE	(1 << 1)
+#define IXP4XX_FEATURE_HASH		(1 << 2)
+#define IXP4XX_FEATURE_AES		(1 << 3)
+#define IXP4XX_FEATURE_DES		(1 << 4)
+#define IXP4XX_FEATURE_HDLC		(1 << 5)
+#define IXP4XX_FEATURE_AAL		(1 << 6)
+#define IXP4XX_FEATURE_HSS		(1 << 7)
+#define IXP4XX_FEATURE_UTOPIA		(1 << 8)
+#define IXP4XX_FEATURE_NPEB_ETH0	(1 << 9)
+#define IXP4XX_FEATURE_NPEC_ETH		(1 << 10)
+#define IXP4XX_FEATURE_RESET_NPEA	(1 << 11)
+#define IXP4XX_FEATURE_RESET_NPEB	(1 << 12)
+#define IXP4XX_FEATURE_RESET_NPEC	(1 << 13)
+#define IXP4XX_FEATURE_PCI		(1 << 14)
+#define IXP4XX_FEATURE_ECC_TIMESYNC	(1 << 15)
+#define IXP4XX_FEATURE_UTOPIA_PHY_LIMIT	(3 << 16)
+#define IXP4XX_FEATURE_USB_HOST		(1 << 18)
+#define IXP4XX_FEATURE_NPEA_ETH		(1 << 19)
+#define IXP4XX_FEATURE_NPEB_ETH_1_TO_3	(1 << 20)
+#define IXP4XX_FEATURE_RSA		(1 << 21)
+#define IXP4XX_FEATURE_XSCALE_MAX_FREQ	(3 << 22)
+#define IXP4XX_FEATURE_RESERVED		(0xFF << 24)
 
-#define IXP4XX_FUSE_IXP46X_ONLY (IXP4XX_FUSE_ECC_TIMESYNC |		\
-				 IXP4XX_FUSE_USB_HOST |			\
-				 IXP4XX_FUSE_NPEA_ETH |			\
-				 IXP4XX_FUSE_NPEB_ETH_1_TO_3 |		\
-				 IXP4XX_FUSE_RSA |			\
-				 IXP4XX_FUSE_XSCALE_MAX_FREQ)
+#define IXP4XX_FEATURE_IXP46X_ONLY (IXP4XX_FEATURE_ECC_TIMESYNC |	\
+				    IXP4XX_FEATURE_USB_HOST |		\
+				    IXP4XX_FEATURE_NPEA_ETH |		\
+				    IXP4XX_FEATURE_NPEB_ETH_1_TO_3 |	\
+				    IXP4XX_FEATURE_RSA |		\
+				    IXP4XX_FEATURE_XSCALE_MAX_FREQ)
 
 #endif

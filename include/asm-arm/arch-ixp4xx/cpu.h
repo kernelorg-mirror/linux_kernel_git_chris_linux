@@ -28,17 +28,17 @@ extern unsigned int processor_id;
 #define cpu_is_ixp46x()	((processor_id & IXP4XX_PROCESSOR_ID_MASK) == \
 			  IXP465_PROCESSOR_ID_VALUE)
 
-static inline u32 ixp4xx_read_fuses(void)
+static inline u32 ixp4xx_read_feature_bits(void)
 {
-	unsigned int fuses = ~*IXP4XX_EXP_CFG2;
-	fuses &= ~IXP4XX_FUSE_RESERVED;
+	unsigned int val = ~*IXP4XX_EXP_CFG2;
+	val &= ~IXP4XX_FEATURE_RESERVED;
 	if (!cpu_is_ixp46x())
-		fuses &= ~IXP4XX_FUSE_IXP46X_ONLY;
+		val &= ~IXP4XX_FEATURE_IXP46X_ONLY;
 
-	return fuses;
+	return val;
 }
 
-static inline void ixp4xx_write_fuses(u32 value)
+static inline void ixp4xx_write_feature_bits(u32 value)
 {
 	*IXP4XX_EXP_CFG2 = ~value;
 }

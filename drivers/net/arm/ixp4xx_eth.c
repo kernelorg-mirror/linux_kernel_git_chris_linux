@@ -27,10 +27,11 @@
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
+#include <linux/etherdevice.h>
+#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/mii.h>
 #include <linux/platform_device.h>
-#include <asm/io.h>
 #include <asm/arch/npe.h>
 #include <asm/arch/qmgr.h>
 
@@ -1235,7 +1236,7 @@ static struct platform_driver drv = {
 
 static int __init eth_init_module(void)
 {
-	if (!(ixp4xx_read_fuses() & IXP4XX_FUSE_NPEB_ETH0))
+	if (!(ixp4xx_read_feature_bits() & IXP4XX_FEATURE_NPEB_ETH0))
 		return -ENOSYS;
 
 	/* All MII PHY accesses use NPE-B Ethernet registers */

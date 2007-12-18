@@ -9,8 +9,8 @@
 #ifndef IXP4XX_QMGR_H
 #define IXP4XX_QMGR_H
 
+#include <linux/io.h>
 #include <linux/kernel.h>
-#include <asm/io.h>
 
 #define HALF_QUEUES	32
 #define QUEUES		64	/* only 32 lower queues currently supported */
@@ -55,8 +55,6 @@ struct qmgr_regs {
 	u32 sram[2048];		/* 0x2000 - 0x3FFF - config and buffer */
 };
 
-extern struct qmgr_regs __iomem *qmgr_regs;
-
 void qmgr_set_irq(unsigned int queue, int src,
 		  void (*handler)(void *pdev), void *pdev);
 void qmgr_enable_irq(unsigned int queue);
@@ -71,22 +69,26 @@ void qmgr_release_queue(unsigned int queue);
 
 static inline void qmgr_put_entry(unsigned int queue, u32 val)
 {
+	extern struct qmgr_regs __iomem *qmgr_regs;
 	__raw_writel(val, &qmgr_regs->acc[queue][0]);
 }
 
 static inline u32 qmgr_get_entry(unsigned int queue)
 {
+	extern struct qmgr_regs __iomem *qmgr_regs;
 	return __raw_readl(&qmgr_regs->acc[queue][0]);
 }
 
 static inline int qmgr_get_stat1(unsigned int queue)
 {
+	extern struct qmgr_regs __iomem *qmgr_regs;
 	return (__raw_readl(&qmgr_regs->stat1[queue >> 3])
 		>> ((queue & 7) << 2)) & 0xF;
 }
 
 static inline int qmgr_get_stat2(unsigned int queue)
 {
+	extern struct qmgr_regs __iomem *qmgr_regs;
 	return (__raw_readl(&qmgr_regs->stat2[queue >> 4])
 		>> ((queue & 0xF) << 1)) & 0x3;
 }
