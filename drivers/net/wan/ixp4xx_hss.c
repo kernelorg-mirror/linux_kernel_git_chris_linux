@@ -205,8 +205,8 @@
 #define PKT_PIPE_MODE_WRITE			0x57
 
 
-#define HSS_TIMESLOTS		128
-#define HSS_LUT_BITS		2
+#define TIMESLOTS		128
+#define LUT_BITS		2
 
 /* HDLC packet status values - desc->status */
 #define ERR_SHUTDOWN		1 /* stop or shutdown occurrance */
@@ -903,11 +903,10 @@ static int hss_open(struct net_device *dev)
 		goto err_plat_close; /* 20: RX FCR */
 
 	msg.data32 = 0;		/* Fill LUT with HDLC timeslots */
-	for (i = 0; i < 32 / HSS_LUT_BITS; i++)
-		msg.data32 |= TDMMAP_HDLC << (HSS_LUT_BITS * i);
+	for (i = 0; i < 32 / LUT_BITS; i++)
+		msg.data32 |= TDMMAP_HDLC << (LUT_BITS * i);
 
-	for (i = 0; i < 2 /* TX and RX */ * HSS_TIMESLOTS * HSS_LUT_BITS / 8;
-	     i += 4) {
+	for (i = 0; i < 2 /* TX and RX */ * TIMESLOTS * LUT_BITS / 8; i += 4) {
 		msg.index = 24 + i; /* 24 - 55: TX LUT, 56 - 87: RX LUT */
 		if ((err = npe_send_message(npe, &msg, "HSS_SET_LUT") != 0))
 			goto err_plat_close;
