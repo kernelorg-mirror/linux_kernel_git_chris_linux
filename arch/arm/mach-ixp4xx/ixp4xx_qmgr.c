@@ -248,7 +248,7 @@ static int qmgr_init(void)
 error_irq:
 	iounmap(qmgr_regs);
 error_map:
-	release_resource(mem_res);
+	release_mem_region(IXP4XX_QMGR_BASE_PHYS, IXP4XX_QMGR_REGION_SIZE);
 	return err;
 }
 
@@ -257,7 +257,7 @@ static void qmgr_remove(void)
 	free_irq(IRQ_IXP4XX_QM1, NULL);
 	synchronize_irq(IRQ_IXP4XX_QM1);
 	iounmap(qmgr_regs);
-	release_resource(mem_res);
+	release_mem_region(IXP4XX_QMGR_BASE_PHYS, IXP4XX_QMGR_REGION_SIZE);
 }
 
 module_init(qmgr_init);
