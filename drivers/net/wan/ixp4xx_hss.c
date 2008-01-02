@@ -160,10 +160,24 @@
 #define CLK46X_SPEED_8192KHZ	((    8 << 22) | (280 << 12) | 2047)
 
 
-/* hss_config, LUTs: default = unassigned */
-#define TDMMAP_HDLC		1	/* HDLC - packetised */
-#define TDMMAP_VOICE56K		2	/* Voice56K - channelised */
-#define TDMMAP_VOICE64K		3	/* Voice64K - channelised */
+/* hss_config, LUT entries */
+#define TDMMAP_UNASSIGNED	0
+#define TDMMAP_HDLC		1	/* HDLC - packetized */
+#define TDMMAP_VOICE56K		2	/* Voice56K - 7-bit channelized */
+#define TDMMAP_VOICE64K		3	/* Voice64K - 8-bit channelized */
+
+#define TIMESLOTS		128
+#define LUT_BITS		2
+
+/* offsets into HSS config */
+#define HSS_CONFIG_TX_PCR	0x00
+#define HSS_CONFIG_RX_PCR	0x04
+#define HSS_CONFIG_CORE_CR	0x08
+#define HSS_CONFIG_CLOCK_CR	0x0C
+#define HSS_CONFIG_TX_FCR	0x10
+#define HSS_CONFIG_RX_FCR	0x14
+#define HSS_CONFIG_TX_LUT	0x18
+#define HSS_CONFIG_RX_LUT	0x38
 
 
 /* NPE command codes */
@@ -204,10 +218,6 @@
 #define PKT_PIPE_RX_SIZE_WRITE			0x56
 #define PKT_PIPE_MODE_WRITE			0x57
 
-
-#define TIMESLOTS		128
-#define LUT_BITS		2
-
 /* HDLC packet status values - desc->status */
 #define ERR_SHUTDOWN		1 /* stop or shutdown occurrance */
 #define ERR_HDLC_ALIGN		2 /* HDLC alignment error */
@@ -236,8 +246,8 @@ struct port {
 	buffer_t *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
 	struct desc *desc_tab;	/* coherent */
 	u32 desc_tab_phys;
-	sync_serial_settings settings;
 	int id;
+	unsigned int clock_type, clock_rate, loopback;
 	u8 hdlc_cfg;
 };
 
@@ -291,6 +301,30 @@ struct desc {
 				 ((n) + RX_DESCS) * sizeof(struct desc))
 #define tx_desc_ptr(port, n)	(&(port)->desc_tab[(n) + RX_DESCS])
 
+/*****************************************************************************
+ * global variables
+ ****************************************************************************/
+
+static int ports_open;
+static struct dma_pool *dma_pool;
+
+static const struct {
+	int tx, txdone, rx, rxfree;
+}queue_ids[2] = {{ HSS0_PKT_TX0_QUEUE, HSS0_PKT_TXDONE_QUEUE,
+		   HSS0_PKT_RX_QUEUE, HSS0_PKT_RXFREE0_QUEUE },
+		 { HSS1_PKT_TX0_QUEUE, HSS1_PKT_TXDONE_QUEUE,
+		   HSS1_PKT_RX_QUEUE, HSS1_PKT_RXFREE0_QUEUE },
+};
+
+/*****************************************************************************
+ * utility functions
+ ****************************************************************************/
+
+static inline struct port* dev_to_port(struct net_device *dev)
+{
+	return dev_to_hdlc(dev)->priv;
+}
+
 #ifndef __ARMEB__
 static inline void memcpy_swab32(u32 *dest, u32 *src, int cnt)
 {
@@ -299,24 +333,6 @@ static inline void memcpy_swab32(u32 *dest, u32 *src, int cnt)
 		dest[i] = swab32(src[i]);
 }
 #endif
-
-static int ports_open;
-static struct dma_pool *dma_pool;
-
-static struct {
-	int tx, txdone, rx, rxfree;
-}queue_ids[2] = {{ HSS0_PKT_TX0_QUEUE, HSS0_PKT_TXDONE_QUEUE,
-		   HSS0_PKT_RX_QUEUE, HSS0_PKT_RXFREE0_QUEUE },
-		 { HSS1_PKT_TX0_QUEUE, HSS1_PKT_TXDONE_QUEUE,
-		   HSS1_PKT_RX_QUEUE, HSS1_PKT_RXFREE0_QUEUE },
-};
-
-
-static inline struct port* dev_to_port(struct net_device *dev)
-{
-	return dev_to_hdlc(dev)->priv;
-}
-
 
 static inline void debug_pkt(struct net_device *dev, const char *func,
 			     u8 *data, int len)
@@ -422,7 +438,7 @@ static inline void dma_unmap_tx(struct port *port, struct desc *desc)
 }
 
 
-static void hss_set_carrier(void *pdev, int carrier)
+static void hss_hdlc_set_carrier(void *pdev, int carrier)
 {
 	struct net_device *dev = pdev;
 	if (carrier)
@@ -431,19 +447,19 @@ static void hss_set_carrier(void *pdev, int carrier)
 		netif_carrier_off(dev);
 }
 
-static void hss_rx_irq(void *pdev)
+static void hss_hdlc_rx_irq(void *pdev)
 {
 	struct net_device *dev = pdev;
 	struct port *port = dev_to_port(dev);
 
 #if DEBUG_RX
-	printk(KERN_DEBUG "%s: hss_rx_irq\n", dev->name);
+	printk(KERN_DEBUG "%s: hss_hdlc_rx_irq\n", dev->name);
 #endif
 	qmgr_disable_irq(queue_ids[port->id].rx);
 	netif_rx_schedule(dev);
 }
 
-static int hss_poll(struct net_device *dev, int *budget)
+static int hss_hdlc_poll(struct net_device *dev, int *budget)
 {
 	struct port *port = dev_to_port(dev);
 	unsigned int rxq = queue_ids[port->id].rx;
@@ -452,7 +468,7 @@ static int hss_poll(struct net_device *dev, int *budget)
 	int quota = dev->quota, received = 0;
 
 #if DEBUG_RX
-	printk(KERN_DEBUG "%s: hss_poll\n", dev->name);
+	printk(KERN_DEBUG "%s: hss_hdlc_poll\n", dev->name);
 #endif
 
 	while (quota) {
@@ -469,15 +485,15 @@ static int hss_poll(struct net_device *dev, int *budget)
 			*budget -= received;
 			received = 0;
 #if DEBUG_RX
-			printk(KERN_DEBUG "%s: hss_poll netif_rx_complete\n",
-			       dev->name);
+			printk(KERN_DEBUG "%s: hss_hdlc_poll"
+			       " netif_rx_complete\n", dev->name);
 #endif
 			netif_rx_complete(dev);
 			qmgr_enable_irq(rxq);
 			if (!qmgr_stat_empty(rxq) &&
 			    netif_rx_reschedule(dev, 0)) {
 #if DEBUG_RX
-				printk(KERN_DEBUG "%s: hss_poll"
+				printk(KERN_DEBUG "%s: hss_hdlc_poll"
 				       " netif_rx_reschedule successed\n",
 				       dev->name);
 #endif
@@ -485,7 +501,7 @@ static int hss_poll(struct net_device *dev, int *budget)
 				continue;
 			}
 #if DEBUG_RX
-			printk(KERN_DEBUG "%s: hss_poll all done\n",
+			printk(KERN_DEBUG "%s: hss_hdlc_poll all done\n",
 			       dev->name);
 #endif
 			return 0; /* all work done */
@@ -494,8 +510,8 @@ static int hss_poll(struct net_device *dev, int *budget)
 		desc = rx_desc_ptr(port, n);
 
 		if (desc->error_count) /* FIXME - remove printk */
-			printk(KERN_DEBUG "%s: hss_poll status 0x%02X errors"
-			       " %u\n", dev->name, desc->status,
+			printk(KERN_DEBUG "%s: hss_hdlc_poll status 0x%02X"
+			       " errors %u\n", dev->name, desc->status,
 			       desc->error_count);
 
 		skb = NULL;
@@ -531,8 +547,8 @@ static int hss_poll(struct net_device *dev, int *budget)
 			stats->rx_errors++;
 			break;
 		default:	/* FIXME - remove printk */
-			printk(KERN_ERR "%s: hss_poll(): status 0x%02X errors"
-			       " %u\n", dev->name, desc->status,
+			printk(KERN_ERR "%s: hss_hdlc_poll: status 0x%02X"
+			       " errors %u\n", dev->name, desc->status,
 			       desc->error_count);
 			stats->rx_errors++;
 		}
@@ -559,7 +575,7 @@ static int hss_poll(struct net_device *dev, int *budget)
 #endif
 		skb_put(skb, desc->pkt_len);
 
-		debug_pkt(dev, "hss_poll", skb->data, skb->len);
+		debug_pkt(dev, "hss_hdlc_poll", skb->data, skb->len);
 
 		skb->protocol = hdlc_type_trans(skb, dev);
 		dev->last_rx = jiffies;
@@ -581,13 +597,13 @@ static int hss_poll(struct net_device *dev, int *budget)
 	dev->quota -= received;
 	*budget -= received;
 #if DEBUG_RX
-	printk(KERN_DEBUG "hss_poll(): end, not all work done\n");
+	printk(KERN_DEBUG "hss_hdlc_poll: end, not all work done\n");
 #endif
 	return 1;		/* not all work done */
 }
 
 
-static void hss_txdone_irq(void *pdev)
+static void hss_hdlc_txdone_irq(void *pdev)
 {
 	struct net_device *dev = pdev;
 	struct port *port = dev_to_port(dev);
@@ -595,7 +611,7 @@ static void hss_txdone_irq(void *pdev)
 	int n_desc;
 
 #if DEBUG_TX
-	printk(KERN_DEBUG DRV_NAME ": hss_txdone_irq\n");
+	printk(KERN_DEBUG DRV_NAME ": hss_hdlc_txdone_irq\n");
 #endif
 	while ((n_desc = queue_get_desc(queue_ids[port->id].txdone,
 					port, 1)) >= 0) {
@@ -609,7 +625,7 @@ static void hss_txdone_irq(void *pdev)
 
 		dma_unmap_tx(port, desc);
 #if DEBUG_TX
-		printk(KERN_DEBUG "%s: hss_txdone_irq free %p\n",
+		printk(KERN_DEBUG "%s: hss_hdlc_txdone_irq free %p\n",
 		       port->netdev->name, port->tx_buff_tab[n_desc]);
 #endif
 		free_buffer_irq(port->tx_buff_tab[n_desc]);
@@ -620,15 +636,15 @@ static void hss_txdone_irq(void *pdev)
 			       tx_desc_phys(port, n_desc), desc);
 		if (start) {
 #if DEBUG_TX
-			printk(KERN_DEBUG "%s: hss_txdone_irq xmit ready\n",
-			       port->netdev->name);
+			printk(KERN_DEBUG "%s: hss_hdlc_txdone_irq xmit"
+			       " ready\n", port->netdev->name);
 #endif
 			netif_wake_queue(port->netdev);
 		}
 	}
 }
 
-static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
+static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
 	struct net_device_stats *stats = hdlc_stats(dev);
@@ -639,7 +655,7 @@ static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct desc *desc;
 
 #if DEBUG_TX
-	printk(KERN_DEBUG "%s: hss_xmit\n", dev->name);
+	printk(KERN_DEBUG "%s: hss_hdlc_xmit\n", dev->name);
 #endif
 
 	if (unlikely(skb->len > HDLC_MAX_MRU)) {
@@ -648,7 +664,7 @@ static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_OK;
 	}
 
-	debug_pkt(dev, "hss_xmit", skb->data, skb->len);
+	debug_pkt(dev, "hss_hdlc_xmit", skb->data, skb->len);
 
 	len = skb->len;
 #ifdef __ARMEB__
@@ -696,13 +712,13 @@ static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (qmgr_stat_empty(txreadyq)) {
 #if DEBUG_TX
-		printk(KERN_DEBUG "%s: hss_xmit queue full\n", dev->name);
+		printk(KERN_DEBUG "%s: hss_hdlc_xmit queue full\n", dev->name);
 #endif
 		netif_stop_queue(dev);
 		/* we could miss TX ready interrupt */
 		if (!qmgr_stat_empty(txreadyq)) {
 #if DEBUG_TX
-			printk(KERN_DEBUG "%s: hss_xmit ready again\n",
+			printk(KERN_DEBUG "%s: hss_hdlc_xmit ready again\n",
 			       dev->name);
 #endif
 			netif_wake_queue(dev);
@@ -710,13 +726,13 @@ static int hss_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 #if DEBUG_TX
-	printk(KERN_DEBUG "%s: hss_xmit end\n", dev->name);
+	printk(KERN_DEBUG "%s: hss_hdlc_xmit end\n", dev->name);
 #endif
 	return NETDEV_TX_OK;
 }
 
 
-static int request_queues(struct port *port)
+static int request_hdlc_queues(struct port *port)
 {
 	int err;
 
@@ -754,7 +770,7 @@ rel_rxfree:
 	return err;
 }
 
-static void release_queues(struct port *port)
+static void release_hdlc_queues(struct port *port)
 {
 	qmgr_release_queue(queue_ids[port->id].rxfree);
 	qmgr_release_queue(queue_ids[port->id].rx);
@@ -763,7 +779,7 @@ static void release_queues(struct port *port)
 	qmgr_release_queue(port->plat->txreadyq);
 }
 
-static int init_queues(struct port *port)
+static int init_hdlc_queues(struct port *port)
 {
 	int i;
 
@@ -806,7 +822,7 @@ static int init_queues(struct port *port)
 	return 0;
 }
 
-static void destroy_queues(struct port *port)
+static void destroy_hdlc_queues(struct port *port)
 {
 	int i;
 
@@ -839,7 +855,7 @@ static void destroy_queues(struct port *port)
 	}
 }
 
-static int hss_open(struct net_device *dev)
+static int hss_hdlc_open(struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
 	struct npe *npe = port->npe;
@@ -857,7 +873,7 @@ static int hss_open(struct net_device *dev)
 
 	if (port->plat->open)
 		if ((err = port->plat->open(port->id, port->netdev,
-					    hss_set_carrier)) != 0)
+					    hss_hdlc_set_carrier)) != 0)
 			goto err_hdlc_close;
 
 	/* HSS main configuration */
@@ -871,7 +887,7 @@ static int hss_open(struct net_device *dev)
 		PCR_MSB_ENDIAN |
 		PCR_TX_DATA_ENABLE;
 
-	if (port->settings.clock_type == CLOCK_INT)
+	if (port->clock_type == CLOCK_INT)
 		msg.data32 |= PCR_SYNC_CLK_DIR_OUTPUT;
 
 	if ((err = npe_send_message(npe, &msg, "HSS_SET_TX_PCR") != 0))
@@ -883,7 +899,7 @@ static int hss_open(struct net_device *dev)
 		goto err_plat_close; /* 4: RX PCR */
 
 	msg.index = 8;
-	msg.data32 = (port->settings.loopback ? CCR_LOOPBACK : 0) |
+	msg.data32 = (port->loopback ? CCR_LOOPBACK : 0) |
 		(port->id ? CCR_SECOND_HSS : 0);
 	if ((err = npe_send_message(npe, &msg, "HSS_SET_CORE_CR") != 0))
 		goto err_plat_close; /* 8: Core CR */
@@ -974,10 +990,10 @@ static int hss_open(struct net_device *dev)
 	if ((err = npe_send_message(npe, &msg, "HSS_SET_PKT_RX_SIZE") != 0))
 		goto err_plat_close;
 
-	if ((err = request_queues(port)) != 0)
+	if ((err = request_hdlc_queues(port)) != 0)
 		goto err_plat_close;
 
-	if ((err = init_queues(port)) != 0)
+	if ((err = init_hdlc_queues(port)) != 0)
 		goto err_destroy_queues;
 
 	memset(&msg, 0, sizeof(msg));
@@ -998,10 +1014,10 @@ static int hss_open(struct net_device *dev)
 	netif_start_queue(dev);
 
 	qmgr_set_irq(queue_ids[port->id].rx, QUEUE_IRQ_SRC_NOT_EMPTY,
-		     hss_rx_irq, dev);
+		     hss_hdlc_rx_irq, dev);
 
 	qmgr_set_irq(queue_ids[port->id].txdone, QUEUE_IRQ_SRC_NOT_EMPTY,
-		     hss_txdone_irq, dev);
+		     hss_hdlc_txdone_irq, dev);
 	qmgr_enable_irq(queue_ids[port->id].txdone);
 
 	ports_open++;
@@ -1009,8 +1025,8 @@ static int hss_open(struct net_device *dev)
 	return 0;
 
 err_destroy_queues:
-	destroy_queues(port);
-	release_queues(port);
+	destroy_hdlc_queues(port);
+	release_hdlc_queues(port);
 err_plat_close:
 	if (port->plat->close)
 		port->plat->close(port->id, port->netdev);
@@ -1019,7 +1035,7 @@ err_hdlc_close:
 	return err;
 }
 
-static int hss_close(struct net_device *dev)
+static int hss_hdlc_close(struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
 	struct npe *npe = port->npe;
@@ -1069,8 +1085,8 @@ static int hss_close(struct net_device *dev)
 		printk(KERN_DEBUG "Draining TX queues took %i cycles\n", i);
 #endif
 	qmgr_disable_irq(queue_ids[port->id].txdone);
-	destroy_queues(port);
-	release_queues(port);
+	destroy_hdlc_queues(port);
+	release_hdlc_queues(port);
 
 	if (port->plat->close)
 		port->plat->close(port->id, port->netdev);
@@ -1079,8 +1095,8 @@ static int hss_close(struct net_device *dev)
 }
 
 
-static int hss_attach(struct net_device *dev, unsigned short encoding,
-		      unsigned short parity)
+static int hss_hdlc_attach(struct net_device *dev, unsigned short encoding,
+			   unsigned short parity)
 {
 	struct port *port = dev_to_port(dev);
 
@@ -1102,7 +1118,7 @@ static int hss_attach(struct net_device *dev, unsigned short encoding,
 }
 
 
-static int hss_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	const size_t size = sizeof(sync_serial_settings);
 	sync_serial_settings new_line;
@@ -1120,7 +1136,11 @@ static int hss_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
-		if (copy_to_user(line, &port->settings, size))
+		memset(&new_line, 0, sizeof(new_line));
+		new_line.clock_type = port->clock_type;
+		new_line.clock_rate = port->clock_rate;
+		new_line.loopback = port->loopback;
+		if (copy_to_user(line, &new_line, size))
 			return -EFAULT;
 		return 0;
 
@@ -1144,7 +1164,9 @@ static int hss_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (new_line.loopback != 0 && new_line.loopback != 1)
 			return -EINVAL;
 
-		memcpy(&port->settings, &new_line, size); /* Update settings */
+		port->clock_type = clk; /* Update settings */
+		port->clock_rate = new_line.clock_rate;
+		port->loopback = new_line.loopback;
 		return 0;
 
 	default:
@@ -1179,16 +1201,16 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	SET_MODULE_OWNER(net);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	hdlc = dev_to_hdlc(dev);
-	hdlc->attach = hss_attach;
-	hdlc->xmit = hss_xmit;
-	dev->open = hss_open;
-	dev->poll = hss_poll;
-	dev->stop = hss_close;
-	dev->do_ioctl = hss_ioctl;
+	hdlc->attach = hss_hdlc_attach;
+	hdlc->xmit = hss_hdlc_xmit;
+	dev->open = hss_hdlc_open;
+	dev->poll = hss_hdlc_poll;
+	dev->stop = hss_hdlc_close;
+	dev->do_ioctl = hss_hdlc_ioctl;
 	dev->weight = 16;
 	dev->tx_queue_len = 100;
-	port->settings.clock_type = CLOCK_EXT;
-	port->settings.clock_rate = 2048000;
+	port->clock_type = CLOCK_EXT;
+	port->clock_rate = 2048000;
 
 	if (register_hdlc_device(dev)) {
 		printk(KERN_ERR "HSS-%i: unable to register HDLC device\n",
