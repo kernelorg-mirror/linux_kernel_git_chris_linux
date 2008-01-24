@@ -508,12 +508,12 @@ static int hss_hdlc_poll(struct net_device *dev, int *budget)
 		}
 
 		desc = rx_desc_ptr(port, n);
-
-		if (desc->error_count) /* FIXME - remove printk */
+#if 0 /* FIXME - error_count counts modulo 256, perhaps we should use it */
+		if (desc->error_count)
 			printk(KERN_DEBUG "%s: hss_hdlc_poll status 0x%02X"
 			       " errors %u\n", dev->name, desc->status,
 			       desc->error_count);
-
+#endif
 		skb = NULL;
 		switch (desc->status) {
 		case 0:
