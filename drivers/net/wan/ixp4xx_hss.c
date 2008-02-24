@@ -2777,7 +2777,6 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 		goto err_plat;
 	}
 
-	SET_MODULE_OWNER(net);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	hdlc = dev_to_hdlc(dev);
 	hdlc->attach = hss_hdlc_attach;
