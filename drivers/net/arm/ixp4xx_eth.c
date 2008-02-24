@@ -54,6 +54,7 @@
 #define POOL_ALLOC_SIZE		(sizeof(struct desc) * (RX_DESCS + TX_DESCS))
 #define REGS_SIZE		0x1000
 #define MAX_MRU			1536 /* 0x600 */
+#define RX_BUFF_SIZE		ALIGN((NET_IP_ALIGN) + MAX_MRU, 4)
 
 #define MDIO_INTERVAL		(3 * HZ)
 #define MAX_MDIO_RETRIES	100 /* microseconds, typically 30 cycles */
@@ -547,16 +548,17 @@ static int eth_poll(struct net_device *dev, int *budget)
 		desc = rx_desc_ptr(port, n);
 
 #ifdef __ARMEB__
-		if ((skb = netdev_alloc_skb(dev, MAX_MRU)) != NULL) {
+		if ((skb = netdev_alloc_skb(dev, RX_BUFF_SIZE))) {
 			phys = dma_map_single(&dev->dev, skb->data,
-					      MAX_MRU, DMA_FROM_DEVICE);
+					      RX_BUFF_SIZE, DMA_FROM_DEVICE);
 			if (dma_mapping_error(phys)) {
 				dev_kfree_skb(skb);
 				skb = NULL;
 			}
 		}
 #else
-		skb = netdev_alloc_skb(dev, desc->pkt_len);
+		skb = netdev_alloc_skb(dev,
+				       ALIGN(NET_IP_ALIGN + desc->pkt_len, 4));
 #endif
 
 		if (!skb) {
@@ -572,14 +574,15 @@ static int eth_poll(struct net_device *dev, int *budget)
 #ifdef __ARMEB__
 		temp = skb;
 		skb = port->rx_buff_tab[n];
-		dma_unmap_single(&dev->dev, desc->data,
-				 MAX_MRU, DMA_FROM_DEVICE);
+		dma_unmap_single(&dev->dev, desc->data - NET_IP_ALIGN,
+				 RX_BUFF_SIZE, DMA_FROM_DEVICE);
 #else
-		dma_sync_single(&dev->dev, desc->data,
-				MAX_MRU, DMA_FROM_DEVICE);
+		dma_sync_single(&dev->dev, desc->data - NET_IP_ALIGN,
+				RX_BUFF_SIZE, DMA_FROM_DEVICE);
 		memcpy_swab32((u32 *)skb->data, (u32 *)port->rx_buff_tab[n],
-			      ALIGN(desc->pkt_len, 4) / 4);
+			      ALIGN(NET_IP_ALIGN + desc->pkt_len, 4) / 4);
 #endif
+		skb_reserve(skb, NET_IP_ALIGN);
 		skb_put(skb, desc->pkt_len);
 
 		debug_pkt(dev, "eth_poll", skb->data, skb->len);
@@ -593,7 +596,7 @@ static int eth_poll(struct net_device *dev, int *budget)
 		/* put the new buffer on RX-free queue */
 #ifdef __ARMEB__
 		port->rx_buff_tab[n] = temp;
-		desc->data = phys;
+		desc->data = phys + NET_IP_ALIGN;
 #endif
 		desc->buf_len = MAX_MRU;
 		desc->pkt_len = 0;
@@ -868,24 +871,25 @@ static int init_queues(struct port *port)
 	/* Setup RX buffers */
 	for (i = 0; i < RX_DESCS; i++) {
 		struct desc *desc = rx_desc_ptr(port, i);
-		buffer_t *buff;
+		buffer_t *buff; /* skb or kmalloc()ated memory */
 		void *data;
 #ifdef __ARMEB__
-		if (!(buff = netdev_alloc_skb(port->netdev, MAX_MRU)))
+		if (!(buff = netdev_alloc_skb(port->netdev, RX_BUFF_SIZE)))
 			return -ENOMEM;
 		data = buff->data;
 #else
-		if (!(buff = kmalloc(MAX_MRU, GFP_KERNEL)))
+		if (!(buff = kmalloc(RX_BUFF_SIZE, GFP_KERNEL)))
 			return -ENOMEM;
 		data = buff;
 #endif
 		desc->buf_len = MAX_MRU;
 		desc->data = dma_map_single(&port->netdev->dev, data,
-					    MAX_MRU, DMA_FROM_DEVICE);
+					    RX_BUFF_SIZE, DMA_FROM_DEVICE);
 		if (dma_mapping_error(desc->data)) {
 			free_buffer(buff);
 			return -EIO;
 		}
+		desc->data += NET_IP_ALIGN;
 		port->rx_buff_tab[i] = buff;
 	}
 
@@ -902,8 +906,8 @@ static void destroy_queues(struct port *port)
 			buffer_t *buff = port->rx_buff_tab[i];
 			if (buff) {
 				dma_unmap_single(&port->netdev->dev,
-						 desc->data, MAX_MRU,
-						 DMA_FROM_DEVICE);
+						 desc->data - NET_IP_ALIGN,
+						 RX_BUFF_SIZE, DMA_FROM_DEVICE);
 				free_buffer(buff);
 			}
 		}
