@@ -1258,5 +1258,6 @@ static void __exit eth_cleanup_module(void)
 MODULE_AUTHOR("Krzysztof Halasa");
 MODULE_DESCRIPTION("Intel IXP4xx Ethernet driver");
 MODULE_LICENSE("GPL v2");
+MODULE_ALIAS("platform:ixp4xx_eth");
 module_init(eth_init_module);
 module_exit(eth_cleanup_module);
