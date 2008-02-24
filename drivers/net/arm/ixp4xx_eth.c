@@ -1129,7 +1129,6 @@ static int __devinit eth_init_one(struct platform_device *pdev)
 	if (!(dev = alloc_etherdev(sizeof(struct port))))
 		return -ENOMEM;
 
-	SET_MODULE_OWNER(dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 	port = netdev_priv(dev);
 	port->netdev = dev;
