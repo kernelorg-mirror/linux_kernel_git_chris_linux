@@ -50,6 +50,7 @@
 #define CHANNEL_HDLC		0xFE
 #define CHANNEL_UNUSED		0xFF
 
+#define NAPI_WEIGHT		16
 #define CHAN_RX_TRIGGER		16 /* 8 RX frames = 1 ms @ E1 */
 #define CHAN_RX_FRAMES		64
 #define MAX_CHAN_RX_BAD_SYNC	(CHAN_RX_TRIGGER / 2 /* pairs */ - 3)
@@ -275,6 +276,7 @@ struct port {
 	struct device *dev;
 	struct npe *npe;
 	struct net_device *netdev;
+	struct napi_struct napi;
 	struct hss_plat_info *plat;
 	buffer_t *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
 	struct desc *desc_tab;	/* coherent */
@@ -1055,22 +1057,23 @@ static void hss_hdlc_rx_irq(void *pdev)
 	printk(KERN_DEBUG "%s: hss_hdlc_rx_irq\n", dev->name);
 #endif
 	qmgr_disable_irq(queue_ids[port->id].rx);
-	netif_rx_schedule(dev);
+	netif_rx_schedule(dev, &port->napi);
 }
 
-static int hss_hdlc_poll(struct net_device *dev, int *budget)
+static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 {
-	struct port *port = dev_to_port(dev);
+	struct port *port = container_of(napi, struct port, napi);
+	struct net_device *dev = port->netdev;
 	unsigned int rxq = queue_ids[port->id].rx;
 	unsigned int rxfreeq = queue_ids[port->id].rxfree;
 	struct net_device_stats *stats = hdlc_stats(dev);
-	int quota = dev->quota, received = 0;
+	int received = 0;
 
 #if DEBUG_RX
 	printk(KERN_DEBUG "%s: hss_hdlc_poll\n", dev->name);
 #endif
 
-	while (quota) {
+	while (received < budget) {
 		struct sk_buff *skb;
 		struct desc *desc;
 		int n;
@@ -1080,17 +1083,15 @@ static int hss_hdlc_poll(struct net_device *dev, int *budget)
 #endif
 
 		if ((n = queue_get_desc(rxq, port, 0)) < 0) {
-			dev->quota -= received;	/* No packet received */
-			*budget -= received;
-			received = 0;
+			received = 0; /* No packet received */
 #if DEBUG_RX
 			printk(KERN_DEBUG "%s: hss_hdlc_poll"
 			       " netif_rx_complete\n", dev->name);
 #endif
-			netif_rx_complete(dev);
+			netif_rx_complete(dev, napi);
 			qmgr_enable_irq(rxq);
 			if (!qmgr_stat_empty(rxq) &&
-			    netif_rx_reschedule(dev, 0)) {
+			    netif_rx_reschedule(dev, napi)) {
 #if DEBUG_RX
 				printk(KERN_DEBUG "%s: hss_hdlc_poll"
 				       " netif_rx_reschedule succeeded\n",
@@ -1190,15 +1191,12 @@ static int hss_hdlc_poll(struct net_device *dev, int *budget)
 		desc->buf_len = RX_SIZE;
 		desc->pkt_len = 0;
 		queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
-		quota--;
 		received++;
 	}
-	dev->quota -= received;
-	*budget -= received;
 #if DEBUG_RX
 	printk(KERN_DEBUG "hss_hdlc_poll: end, not all work done\n");
 #endif
-	return 1;		/* not all work done */
+	return received;	/* not all work done */
 }
 
 
@@ -1505,6 +1503,7 @@ static int hss_hdlc_open(struct net_device *dev)
 		queue_put_desc(queue_ids[port->id].rxfree,
 			       rx_desc_phys(port, i), rx_desc_ptr(port, i));
 
+	napi_enable(&port->napi);
 	netif_start_queue(dev);
 
 	qmgr_set_irq(queue_ids[port->id].rx, QUEUE_IRQ_SRC_NOT_EMPTY,
@@ -1526,7 +1525,8 @@ static int hss_hdlc_open(struct net_device *dev)
 
 	hss_config_start_hdlc(port);
 
-	netif_rx_schedule(dev); /* we may already have RX data, enables IRQ */
+	/* we may already have RX data, enables IRQ */
+	netif_rx_schedule(dev, &port->napi);
 	return 0;
 
 err_plat_close:
@@ -1553,6 +1553,7 @@ static int hss_hdlc_close(struct net_device *dev)
 	port->hdlc_open = 0;
 	qmgr_disable_irq(queue_ids[port->id].rx);
 	netif_stop_queue(dev);
+	napi_disable(&port->napi);
 
 	hss_config_stop_hdlc(port);
 
@@ -2782,10 +2783,8 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	hdlc->attach = hss_hdlc_attach;
 	hdlc->xmit = hss_hdlc_xmit;
 	dev->open = hss_hdlc_open;
-	dev->poll = hss_hdlc_poll;
 	dev->stop = hss_hdlc_close;
 	dev->do_ioctl = hss_hdlc_ioctl;
-	dev->weight = 16;
 	dev->tx_queue_len = 100;
 	port->clock_type = CLOCK_EXT;
 	port->clock_rate = 2048000;
@@ -2793,6 +2792,7 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	memset(port->channels, CHANNEL_UNUSED, sizeof(port->channels));
 	init_waitqueue_head(&port->chan_tx_waitq);
 	init_waitqueue_head(&port->chan_rx_waitq);
+	netif_napi_add(dev, &port->napi, hss_hdlc_poll, NAPI_WEIGHT);
 
 	if ((err = register_hdlc_device(dev))) /* HDLC mode by default */
 		goto err_free_netdev;

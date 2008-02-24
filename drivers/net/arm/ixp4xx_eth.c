@@ -56,6 +56,7 @@
 #define MAX_MRU			1536 /* 0x600 */
 #define RX_BUFF_SIZE		ALIGN((NET_IP_ALIGN) + MAX_MRU, 4)
 
+#define NAPI_WEIGHT		16
 #define MDIO_INTERVAL		(3 * HZ)
 #define MAX_MDIO_RETRIES	100 /* microseconds, typically 30 cycles */
 #define MAX_MII_RESET_RETRIES	100 /* mdio_read() cycles, typically 4 */
@@ -162,6 +163,7 @@ struct port {
 	struct eth_regs __iomem *regs;
 	struct npe *npe;
 	struct net_device *netdev;
+	struct napi_struct napi;
 	struct net_device_stats stat;
 	struct mii_if_info mii;
 	struct delayed_work mdio_thread;
@@ -496,20 +498,21 @@ static void eth_rx_irq(void *pdev)
 	printk(KERN_DEBUG "%s: eth_rx_irq\n", dev->name);
 #endif
 	qmgr_disable_irq(port->plat->rxq);
-	netif_rx_schedule(dev);
+	netif_rx_schedule(dev, &port->napi);
 }
 
-static int eth_poll(struct net_device *dev, int *budget)
+static int eth_poll(struct napi_struct *napi, int budget)
 {
-	struct port *port = netdev_priv(dev);
+	struct port *port = container_of(napi, struct port, napi);
+	struct net_device *dev = port->netdev;
 	unsigned int rxq = port->plat->rxq, rxfreeq = RXFREE_QUEUE(port->id);
-	int quota = dev->quota, received = 0;
+	int received = 0;
 
 #if DEBUG_RX
 	printk(KERN_DEBUG "%s: eth_poll\n", dev->name);
 #endif
 
-	while (quota) {
+	while (received < budget) {
 		struct sk_buff *skb;
 		struct desc *desc;
 		int n;
@@ -519,17 +522,15 @@ static int eth_poll(struct net_device *dev, int *budget)
 #endif
 
 		if ((n = queue_get_desc(rxq, port, 0)) < 0) {
-			dev->quota -= received;	/* No packet received */
-			*budget -= received;
-			received = 0;
+			received = 0; /* No packet received */
 #if DEBUG_RX
 			printk(KERN_DEBUG "%s: eth_poll netif_rx_complete\n",
 			       dev->name);
 #endif
-			netif_rx_complete(dev);
+			netif_rx_complete(dev, napi);
 			qmgr_enable_irq(rxq);
 			if (!qmgr_stat_empty(rxq) &&
-			    netif_rx_reschedule(dev, 0)) {
+			    netif_rx_reschedule(dev, napi)) {
 #if DEBUG_RX
 				printk(KERN_DEBUG "%s: eth_poll"
 				       " netif_rx_reschedule successed\n",
@@ -601,15 +602,13 @@ static int eth_poll(struct net_device *dev, int *budget)
 		desc->buf_len = MAX_MRU;
 		desc->pkt_len = 0;
 		queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
-		quota--;
 		received++;
 	}
-	dev->quota -= received;
-	*budget -= received;
+
 #if DEBUG_RX
 	printk(KERN_DEBUG "eth_poll(): end, not all work done\n");
 #endif
-	return 1;		/* not all work done */
+	return received;		/* not all work done */
 }
 
 
@@ -1013,6 +1012,7 @@ static int eth_open(struct net_device *dev)
 	__raw_writel(0, &port->regs->rx_control[1]);
 	__raw_writel(DEFAULT_RX_CNTRL0, &port->regs->rx_control[0]);
 
+	napi_enable(&port->napi);
 	phy_check_media(port, 1);
 	eth_set_mcast_list(dev);
 	netif_start_queue(dev);
@@ -1026,7 +1026,7 @@ static int eth_open(struct net_device *dev)
 		qmgr_enable_irq(TXDONE_QUEUE);
 	}
 	ports_open++;
-	netif_rx_schedule(dev); /* we may already have RX data, enables IRQ */
+	netif_rx_schedule(dev, &port->napi); /* we may already have RX data, enables IRQ */
 	return 0;
 }
 
@@ -1039,6 +1039,7 @@ static int eth_close(struct net_device *dev)
 
 	ports_open--;
 	qmgr_disable_irq(port->plat->rxq);
+	napi_disable(&port->napi);
 	netif_stop_queue(dev);
 
 	while (queue_get_desc(RXFREE_QUEUE(port->id), port, 0) >= 0)
@@ -1154,13 +1155,13 @@ static int __devinit eth_init_one(struct platform_device *pdev)
 
 	dev->open = eth_open;
 	dev->hard_start_xmit = eth_xmit;
-	dev->poll = eth_poll;
 	dev->stop = eth_close;
 	dev->get_stats = eth_stats;
 	dev->do_ioctl = eth_ioctl;
 	dev->set_multicast_list = eth_set_mcast_list;
-	dev->weight = 16;
 	dev->tx_queue_len = 100;
+
+	netif_napi_add(dev, &port->napi, eth_poll, NAPI_WEIGHT);
 
 	if (!(port->npe = npe_request(NPE_ID(port->id)))) {
 		err = -EIO;
