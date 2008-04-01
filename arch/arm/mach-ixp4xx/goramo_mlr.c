@@ -5,6 +5,7 @@
 
 #include <linux/delay.h>
 #include <linux/hdlc.h>
+#include <linux/i2c-gpio.h>
 #include <linux/irq.h>
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -212,15 +213,15 @@ static struct platform_device device_flash = {
 
 
 /* I^2C interface */
-static struct ixp4xx_i2c_pins i2c_pins = {
+static struct i2c_gpio_platform_data i2c_data = {
 	.sda_pin	= GPIO_SDA,
 	.scl_pin	= GPIO_SCL,
 };
 
 static struct platform_device device_i2c = {
-	.name		= "IXP4XX-I2C",
+	.name		= "i2c-gpio",
 	.id		= 0,
-	.dev		= { .platform_data = &i2c_pins },
+	.dev		= { .platform_data = &i2c_data },
 	.num_resources	= 0,
 };
 
