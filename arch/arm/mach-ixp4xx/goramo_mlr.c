@@ -446,8 +446,7 @@ static int __init gmlr_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
 	switch(slot) {
 	case SLOT_NEC:	return IRQ_NEC;
-	case SLOT_MPCI:	return IRQ_MPCI;
-	default:	return -1;
+	default:	return IRQ_MPCI;
 	}
 }
 
