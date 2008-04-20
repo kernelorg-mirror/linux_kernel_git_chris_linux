@@ -146,7 +146,7 @@ struct eth_regs {
 	u32 partial_empty_threshold, __res4;	/* 030 */
 	u32 partial_full_threshold, __res5;	/* 038 */
 	u32 tx_start_bytes, __res6[3];		/* 040 */
-	u32 tx_deferral, rx_deferral,__res7[2];	/* 050 */
+	u32 tx_deferral, rx_deferral, __res7[2];/* 050 */
 	u32 tx_2part_deferral[2], __res8[2];	/* 060 */
 	u32 slot_time, __res9[3];		/* 070 */
 	u32 mdio_command[4];			/* 080 */
@@ -322,7 +322,7 @@ static void phy_reset(struct net_device *dev, int phy_id)
 	int cycles = 0;
 
 	mdio_write(dev, phy_id, MII_BMCR, port->mii_bmcr | BMCR_RESET);
-	
+
 	while (cycles < MAX_MII_RESET_RETRIES) {
 		if (!(mdio_read(dev, phy_id, MII_BMCR) & BMCR_RESET)) {
 #if DEBUG_MDIO
@@ -1026,7 +1026,8 @@ static int eth_open(struct net_device *dev)
 		qmgr_enable_irq(TXDONE_QUEUE);
 	}
 	ports_open++;
-	netif_rx_schedule(dev, &port->napi); /* we may already have RX data, enables IRQ */
+	/* we may already have RX data, enables IRQ */
+	netif_rx_schedule(dev, &port->napi);
 	return 0;
 }
 
