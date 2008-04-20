@@ -49,7 +49,7 @@ config EP93XX_ETH
 	  Say Y if you are building a kernel for EP93xx based devices.
 
 config IXP4XX_ETH
-	tristate "IXP4xx Ethernet support"
+	tristate "Intel IXP4xx Ethernet support"
 	depends on ARM && ARCH_IXP4XX && IXP4XX_NPE && IXP4XX_QMGR
 	select MII
 	help
