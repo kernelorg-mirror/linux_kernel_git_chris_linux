@@ -366,7 +366,7 @@ struct desc {
 				  chan_tx_buf_len(port))
 
 static int hss_prepare_chan(struct port *port);
-void hss_chan_stop(struct port *port);
+void hss_shutdown_chan(struct port *port);
 
 /*****************************************************************************
  * global variables
@@ -1453,7 +1453,7 @@ static int hss_hdlc_close(struct net_device *dev)
 	hss_stop_hdlc(port);
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
-		hss_chan_stop(port);
+		hss_shutdown_chan(port);
 
 	while (queue_get_desc(queue_ids[port->id].rxfree, port, 0) >= 0)
 		buffs--;
@@ -1917,13 +1917,10 @@ release_queue:
 	return err;
 }
 
-void hss_chan_stop(struct port *port)
+void hss_shutdown_chan(struct port *port)
 {
 	hss_stop_chan(port);
 	hss_config(port);
-
-	if (port->chan_open_count || port->hdlc_open)
-		return;
 
 	qmgr_disable_irq(queue_ids[port->id].chan);
 
@@ -2008,7 +2005,7 @@ static int hss_chan_release(struct inode *inode, struct file *file)
 
 	if (!--chan_dev->open_count) {
 		if (!--port->chan_open_count && !port->hdlc_open) {
-			hss_chan_stop(port);
+			hss_shutdown_chan(port);
 			if (port->plat->close)
 				port->plat->close(port->id, port->netdev);
 		} else {
