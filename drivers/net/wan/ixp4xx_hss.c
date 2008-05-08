@@ -504,147 +504,15 @@ static inline unsigned int sub_offset(unsigned int a, unsigned int b,
  * HSS access
  ****************************************************************************/
 
-static void hss_config_load(struct port *port)
+static void hss_npe_send(struct port *port, struct msg *msg, const char* what)
 {
-	struct msg msg;
-
-	do {
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = PORT_CONFIG_LOAD;
-		msg.hss_port = port->id;
-		if (npe_send_message(port->npe, &msg, "HSS_LOAD_CONFIG"))
-			break;
-		if (npe_recv_message(port->npe, &msg, "HSS_LOAD_CONFIG"))
-			break;
-
-		/* HSS_LOAD_CONFIG for port #1 returns port_id = #4 */
-		if (msg.cmd != PORT_CONFIG_LOAD || msg.data32)
-			break;
-
-		/* HDLC may stop working without this */
-		npe_recv_message(port->npe, &msg, "FLUSH_IT");
-		return;
-	} while (0);
-
-	printk(KERN_CRIT "HSS-%i: unable to reload HSS configuration\n",
-	       port->id);
-	BUG();
-}
-
-static void hss_config_set_pcr(struct port *port)
-{
-	struct msg msg;
-
-	do {
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = PORT_CONFIG_WRITE;
-		msg.hss_port = port->id;
-		msg.index = HSS_CONFIG_TX_PCR;
-		msg.data32 = PCR_FRM_SYNC_OUTPUT_RISING | PCR_MSB_ENDIAN |
-			PCR_TX_DATA_ENABLE;
-		if (port->frame_size % 8 == 0)
-			msg.data32 |= PCR_SOF_NO_FBIT;
-		if (port->clock_type == CLOCK_INT)
-			msg.data32 |= PCR_SYNC_CLK_DIR_OUTPUT;
-		if (npe_send_message(port->npe, &msg, "HSS_SET_TX_PCR"))
-			break;
-
-		msg.index = HSS_CONFIG_RX_PCR;
-		msg.data32 ^= PCR_TX_DATA_ENABLE | PCR_DCLK_EDGE_RISING;
-		if (npe_send_message(port->npe, &msg, "HSS_SET_RX_PCR"))
-			break;
-		return;
-	} while (0);
-
-	printk(KERN_CRIT "HSS-%i: unable to set HSS PCR registers\n", port->id);
-	BUG();
-}
-
-static void hss_config_set_hdlc_cfg(struct port *port)
-{
-	struct msg msg;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.cmd = PKT_PIPE_HDLC_CFG_WRITE;
-	msg.hss_port = port->id;
-	msg.data8a = port->hdlc_cfg; /* rx_cfg */
-	msg.data8b = port->hdlc_cfg | (PKT_EXTRA_FLAGS << 3); /* tx_cfg */
-	if (npe_send_message(port->npe, &msg, "HSS_SET_HDLC_CFG")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS HDLC"
-		       " configuration\n", port->id);
+	u32 *val = (u32*)msg;
+	if (npe_send_message(port->npe, msg, what)) {
+		printk(KERN_CRIT "HSS-%i: unable to send command [%08X:%08X]"
+		       " to %s\n", port->id, val[0], val[1],
+		       npe_name(port->npe));
 		BUG();
 	}
-}
-
-static void hss_config_set_core(struct port *port)
-{
-	struct msg msg;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.cmd = PORT_CONFIG_WRITE;
-	msg.hss_port = port->id;
-	msg.index = HSS_CONFIG_CORE_CR;
-	msg.data32 = (port->loopback ? CCR_LOOPBACK : 0) |
-		(port->id ? CCR_SECOND_HSS : 0);
-	if (npe_send_message(port->npe, &msg, "HSS_SET_CORE_CR")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS core control"
-		       " register\n", port->id);
-		BUG();
-	}
-}
-
-static void hss_config_set_line(struct port *port)
-{
-	struct msg msg;
-
-	hss_config_set_pcr(port);
-	hss_config_set_core(port);
-
-	memset(&msg, 0, sizeof(msg));
-	msg.cmd = PORT_CONFIG_WRITE;
-	msg.hss_port = port->id;
-	msg.index = HSS_CONFIG_CLOCK_CR;
-	msg.data32 = CLK42X_SPEED_2048KHZ /* FIXME */;
-	if (npe_send_message(port->npe, &msg, "HSS_SET_CLOCK_CR")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS clock control"
-		       " register\n", port->id);
-		BUG();
-	}
-}
-
-static void hss_config_set_rx_frame(struct port *port)
-{
-	struct msg msg;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.cmd = PORT_CONFIG_WRITE;
-	msg.hss_port = port->id;
-	msg.index = HSS_CONFIG_RX_FCR;
-	msg.data16a = port->frame_sync_offset;
-	msg.data16b = port->frame_size - 1;
-	if (npe_send_message(port->npe, &msg, "HSS_SET_RX_FCR")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS RX frame size"
-		       " and offset\n", port->id);
-		BUG();
-	}
-}
-
-static void hss_config_set_frame(struct port *port)
-{
-	struct msg msg;
-
-	memset(&msg, 0, sizeof(msg));
-	msg.cmd = PORT_CONFIG_WRITE;
-	msg.hss_port = port->id;
-	msg.index = HSS_CONFIG_TX_FCR;
-	msg.data16a = TX_FRAME_SYNC_OFFSET;
-	msg.data16b = port->frame_size - 1;
-	if (npe_send_message(port->npe, &msg, "HSS_SET_TX_FCR")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS TX frame size"
-		       " and offset\n", port->id);
-		BUG();
-	}
-	hss_config_set_rx_frame(port);
 }
 
 static void hss_config_set_lut(struct port *port)
@@ -689,21 +557,12 @@ static void hss_config_set_lut(struct port *port)
 
 		if (ch % 16 == 15) {
 			msg.index = HSS_CONFIG_TX_LUT + ((ch / 4) & ~3);
-			if (npe_send_message(port->npe, &msg, "HSS_SET_TX_LUT"))
-				break;
+			hss_npe_send(port, &msg, "HSS_SET_TX_LUT");
 
 			msg.index += HSS_CONFIG_RX_LUT - HSS_CONFIG_TX_LUT;
-			if (npe_send_message(port->npe, &msg, "HSS_SET_RX_LUT"))
-				break;
+			hss_npe_send(port, &msg, "HSS_SET_RX_LUT");
 		}
 	}
-	if (ch != MAX_CHANNELS) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS channel look-up"
-		       " table\n", port->id);
-		BUG();
-	}
-
-	hss_config_set_frame(port);
 
 	if (!chan_count)
 		return;
@@ -712,11 +571,7 @@ static void hss_config_set_lut(struct port *port)
 	msg.cmd = CHAN_NUM_CHANS_WRITE;
 	msg.hss_port = port->id;
 	msg.data8a = chan_count;
-	if (npe_send_message(port->npe, &msg, "CHAN_NUM_CHANS_WRITE")) {
-		printk(KERN_CRIT "HSS-%i: unable to set HSS channel count\n",
-		       port->id);
-		BUG();
-	}
+	hss_npe_send(port, &msg, "CHAN_NUM_CHANS_WRITE");
 
 	/* don't leak data */
 	// FIXME memset(chan_tx_buf(port), 0, CHAN_TX_FRAMES * chan_count);
@@ -735,63 +590,132 @@ static void hss_config_set_lut(struct port *port)
 			DMA_TO_DEVICE);
 }
 
-static u32 hss_config_get_status(struct port *port)
+static void hss_config(struct port *port)
 {
 	struct msg msg;
 
-	do {
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = PORT_ERROR_READ;
-		msg.hss_port = port->id;
-		if (npe_send_message(port->npe, &msg, "PORT_ERROR_READ"))
-			break;
-		if (npe_recv_message(port->npe, &msg, "PORT_ERROR_READ"))
-			break;
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_WRITE;
+	msg.hss_port = port->id;
+	msg.index = HSS_CONFIG_TX_PCR;
+	msg.data32 = PCR_FRM_SYNC_OUTPUT_RISING | PCR_MSB_ENDIAN |
+		PCR_TX_DATA_ENABLE;
+	if (port->frame_size % 8 == 0)
+		msg.data32 |= PCR_SOF_NO_FBIT;
+	if (port->clock_type == CLOCK_INT)
+		msg.data32 |= PCR_SYNC_CLK_DIR_OUTPUT;
+	hss_npe_send(port, &msg, "HSS_SET_TX_PCR");
 
-		return msg.data32;
-	} while (0);
+	msg.index = HSS_CONFIG_RX_PCR;
+	msg.data32 ^= PCR_TX_DATA_ENABLE | PCR_DCLK_EDGE_RISING;
+	hss_npe_send(port, &msg, "HSS_SET_RX_PCR");
 
-	printk(KERN_CRIT "HSS-%i: unable to read HSS status\n", port->id);
-	BUG();
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_WRITE;
+	msg.hss_port = port->id;
+	msg.index = HSS_CONFIG_CORE_CR;
+	msg.data32 = (port->loopback ? CCR_LOOPBACK : 0) |
+		(port->id ? CCR_SECOND_HSS : 0);
+	hss_npe_send(port, &msg, "HSS_SET_CORE_CR");
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_WRITE;
+	msg.hss_port = port->id;
+	msg.index = HSS_CONFIG_CLOCK_CR;
+	msg.data32 = CLK42X_SPEED_2048KHZ /* FIXME */;
+	hss_npe_send(port, &msg, "HSS_SET_CLOCK_CR");
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_WRITE;
+	msg.hss_port = port->id;
+	msg.index = HSS_CONFIG_TX_FCR;
+	msg.data16a = TX_FRAME_SYNC_OFFSET;
+	msg.data16b = port->frame_size - 1;
+	hss_npe_send(port, &msg, "HSS_SET_TX_FCR");
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_WRITE;
+	msg.hss_port = port->id;
+	msg.index = HSS_CONFIG_RX_FCR;
+	msg.data16a = port->frame_sync_offset;
+	msg.data16b = port->frame_size - 1;
+	hss_npe_send(port, &msg, "HSS_SET_RX_FCR");
+
+	hss_config_set_lut(port);
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_CONFIG_LOAD;
+	msg.hss_port = port->id;
+	hss_npe_send(port, &msg, "HSS_LOAD_CONFIG");
+
+	if (npe_recv_message(port->npe, &msg, "HSS_LOAD_CONFIG") ||
+	    /* HSS_LOAD_CONFIG for port #1 returns port_id = #4 */
+	    msg.cmd != PORT_CONFIG_LOAD || msg.data32) {
+		printk(KERN_CRIT "HSS-%i: HSS_LOAD_CONFIG failed\n",
+		       port->id);
+		BUG();
+	}
+
+	/* HDLC may stop working without this - check FIXME */
+	npe_recv_message(port->npe, &msg, "FLUSH_IT");
 }
 
-static void hss_config_start_chan(struct port *port)
+static void hss_set_hdlc_cfg(struct port *port)
+{
+	struct msg msg;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PKT_PIPE_HDLC_CFG_WRITE;
+	msg.hss_port = port->id;
+	msg.data8a = port->hdlc_cfg; /* rx_cfg */
+	msg.data8b = port->hdlc_cfg | (PKT_EXTRA_FLAGS << 3); /* tx_cfg */
+	hss_npe_send(port, &msg, "HSS_SET_HDLC_CFG");
+}
+
+static u32 hss_get_status(struct port *port)
+{
+	struct msg msg;
+
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PORT_ERROR_READ;
+	msg.hss_port = port->id;
+	hss_npe_send(port, &msg, "PORT_ERROR_READ");
+	if (npe_recv_message(port->npe, &msg, "PORT_ERROR_READ")) {
+		printk(KERN_CRIT "HSS-%i: unable to read HSS status\n",
+		       port->id);
+		BUG();
+	}
+
+	return msg.data32;
+}
+
+static void hss_start_chan(struct port *port)
 {
 	struct msg msg;
 
 	port->chan_last_tx = 0;
 	port->chan_last_rx = 0;
 
-	do {
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_RX_BUF_ADDR_WRITE;
-		msg.hss_port = port->id;
-		msg.data32 = port->chan_rx_buf_phys;
-		if (npe_send_message(port->npe, &msg, "CHAN_RX_BUF_ADDR_WRITE"))
-			break;
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_RX_BUF_ADDR_WRITE;
+	msg.hss_port = port->id;
+	msg.data32 = port->chan_rx_buf_phys;
+	hss_npe_send(port, &msg, "CHAN_RX_BUF_ADDR_WRITE");
 
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_TX_BUF_ADDR_WRITE;
-		msg.hss_port = port->id;
-		msg.data32 = chan_tx_lists_phys(port);
-		if (npe_send_message(port->npe, &msg, "CHAN_TX_BUF_ADDR_WRITE"))
-			break;
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_TX_BUF_ADDR_WRITE;
+	msg.hss_port = port->id;
+	msg.data32 = chan_tx_lists_phys(port);
+	hss_npe_send(port, &msg, "CHAN_TX_BUF_ADDR_WRITE");
 
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_FLOW_ENABLE;
-		msg.hss_port = port->id;
-		if (npe_send_message(port->npe, &msg, "CHAN_FLOW_ENABLE"))
-			break;
-		port->chan_started = 1;
-		return;
-	} while (0);
-
-	printk(KERN_CRIT "HSS-%i: unable to start channelized flow\n",
-	       port->id);
-	BUG();
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_FLOW_ENABLE;
+	msg.hss_port = port->id;
+	hss_npe_send(port, &msg, "CHAN_FLOW_ENABLE");
+	port->chan_started = 1;
 }
 
-static void hss_config_stop_chan(struct port *port)
+static void hss_stop_chan(struct port *port)
 {
 	struct msg msg;
 
@@ -801,16 +725,13 @@ static void hss_config_stop_chan(struct port *port)
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = CHAN_FLOW_DISABLE;
 	msg.hss_port = port->id;
-	if (npe_send_message(port->npe, &msg, "CHAN_FLOW_DISABLE")) {
-		printk(KERN_CRIT "HSS-%i: unable to stop channelized flow\n",
-		       port->id);
-		BUG();
-	}
-	hss_config_get_status(port); /* make sure it's halted */
+	hss_npe_send(port, &msg, "CHAN_FLOW_DISABLE");
+
+	hss_get_status(port); /* make sure it's halted */
 	port->chan_started = 0;
 }
 
-static void hss_config_start_hdlc(struct port *port)
+static void hss_start_hdlc(struct port *port)
 {
 	struct msg msg;
 
@@ -818,29 +739,21 @@ static void hss_config_start_hdlc(struct port *port)
 	msg.cmd = PKT_PIPE_FLOW_ENABLE;
 	msg.hss_port = port->id;
 	msg.data32 = 0;
-	if (npe_send_message(port->npe, &msg, "HSS_ENABLE_PKT_PIPE")) {
-		printk(KERN_CRIT "HSS-%i: unable to stop packetized flow\n",
-		       port->id);
-		BUG();
-	}
+	hss_npe_send(port, &msg, "HSS_ENABLE_PKT_PIPE");
 }
 
-static void hss_config_stop_hdlc(struct port *port)
+static void hss_stop_hdlc(struct port *port)
 {
 	struct msg msg;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = PKT_PIPE_FLOW_DISABLE;
 	msg.hss_port = port->id;
-	if (npe_send_message(port->npe, &msg, "HSS_DISABLE_PKT_PIPE")) {
-		printk(KERN_CRIT "HSS-%i: unable to stop packetized flow\n",
-		       port->id);
-		BUG();
-	}
-	hss_config_get_status(port); /* make sure it's halted */
+	hss_npe_send(port, &msg, "HSS_DISABLE_PKT_PIPE");
+	hss_get_status(port); /* make sure it's halted */
 }
 
-static int hss_config_load_firmware(struct port *port)
+static int hss_load_firmware(struct port *port)
 {
 	struct msg msg;
 
@@ -854,74 +767,56 @@ static int hss_config_load_firmware(struct port *port)
 			return err;
 	}
 
-	do {
-		/* HSS main configuration */
-		hss_config_set_line(port);
+	/* HDLC mode configuration */
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = PKT_NUM_PIPES_WRITE;
+	msg.hss_port = port->id;
+	msg.data8a = PKT_NUM_PIPES;
+	hss_npe_send(port, &msg, "HSS_SET_PKT_PIPES");
 
-		hss_config_set_frame(port);
+	msg.cmd = PKT_PIPE_FIFO_SIZEW_WRITE;
+	msg.data8a = PKT_PIPE_FIFO_SIZEW;
+	hss_npe_send(port, &msg, "HSS_SET_PKT_FIFO");
 
-		/* HDLC mode configuration */
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = PKT_NUM_PIPES_WRITE;
-		msg.hss_port = port->id;
-		msg.data8a = PKT_NUM_PIPES;
-		if (npe_send_message(port->npe, &msg, "HSS_SET_PKT_PIPES"))
-			break;
+	msg.cmd = PKT_PIPE_MODE_WRITE;
+	msg.data8a = NPE_PKT_MODE_HDLC;
+	/* msg.data8b = inv_mask */
+	/* msg.data8c = or_mask */
+	hss_npe_send(port, &msg, "HSS_SET_PKT_MODE");
 
-		msg.cmd = PKT_PIPE_FIFO_SIZEW_WRITE;
-		msg.data8a = PKT_PIPE_FIFO_SIZEW;
-		if (npe_send_message(port->npe, &msg, "HSS_SET_PKT_FIFO"))
-			break;
+	msg.cmd = PKT_PIPE_RX_SIZE_WRITE;
+	msg.data16a = HDLC_MAX_MRU; /* including CRC */
+	hss_npe_send(port, &msg, "HSS_SET_PKT_RX_SIZE");
 
-		msg.cmd = PKT_PIPE_MODE_WRITE;
-		msg.data8a = NPE_PKT_MODE_HDLC;
-		/* msg.data8b = inv_mask */
-		/* msg.data8c = or_mask */
-		if (npe_send_message(port->npe, &msg, "HSS_SET_PKT_MODE"))
-			break;
+	msg.cmd = PKT_PIPE_IDLE_PATTERN_WRITE;
+	msg.data32 = 0x7F7F7F7F; /* ??? FIXME */
+	hss_npe_send(port, &msg, "HSS_SET_PKT_IDLE");
 
-		msg.cmd = PKT_PIPE_RX_SIZE_WRITE;
-		msg.data16a = HDLC_MAX_MRU; /* including CRC */
-		if (npe_send_message(port->npe, &msg, "HSS_SET_PKT_RX_SIZE"))
-			break;
+	/* Channelized operation settings */
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_TX_BLK_CFG_WRITE;
+	msg.hss_port = port->id;
+	msg.data8b = (CHAN_TX_LIST_FRAMES & ~7) / 2;
+	msg.data8a = msg.data8b / 4;
+	msg.data8d = CHAN_TX_LIST_FRAMES - msg.data8b;
+	msg.data8c = msg.data8d / 4;
+	hss_npe_send(port, &msg, "CHAN_TX_BLK_CFG_WRITE");
 
-		msg.cmd = PKT_PIPE_IDLE_PATTERN_WRITE;
-		msg.data32 = 0x7F7F7F7F; /* ??? FIXME */
-		if (npe_send_message(port->npe, &msg, "HSS_SET_PKT_IDLE"))
-			break;
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_RX_BUF_CFG_WRITE;
+	msg.hss_port = port->id;
+	msg.data8a = CHAN_RX_TRIGGER / 8;
+	msg.data8b = CHAN_RX_FRAMES;
+	hss_npe_send(port, &msg, "CHAN_RX_BUF_CFG_WRITE");
 
-		/* Channelized operation settings */
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_TX_BLK_CFG_WRITE;
-		msg.hss_port = port->id;
-		msg.data8b = (CHAN_TX_LIST_FRAMES & ~7) / 2;
-		msg.data8a = msg.data8b / 4;
-		msg.data8d = CHAN_TX_LIST_FRAMES - msg.data8b;
-		msg.data8c = msg.data8d / 4;
-		if (npe_send_message(port->npe, &msg, "CHAN_TX_BLK_CFG_WRITE"))
-			break;
+	memset(&msg, 0, sizeof(msg));
+	msg.cmd = CHAN_TX_BUF_SIZE_WRITE;
+	msg.hss_port = port->id;
+	msg.data8a = CHAN_TX_LISTS;
+	hss_npe_send(port, &msg, "CHAN_TX_BUF_SIZE_WRITE");
 
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_RX_BUF_CFG_WRITE;
-		msg.hss_port = port->id;
-		msg.data8a = CHAN_RX_TRIGGER / 8;
-		msg.data8b = CHAN_RX_FRAMES;
-		if (npe_send_message(port->npe, &msg, "CHAN_RX_BUF_CFG_WRITE"))
-			break;
-
-		memset(&msg, 0, sizeof(msg));
-		msg.cmd = CHAN_TX_BUF_SIZE_WRITE;
-		msg.hss_port = port->id;
-		msg.data8a = CHAN_TX_LISTS;
-		if (npe_send_message(port->npe, &msg, "CHAN_TX_BUF_SIZE_WRITE"))
-			break;
-
-		port->initialized = 1;
-		return 0;
-	} while (0);
-
-	printk(KERN_CRIT "HSS-%i: unable to start HSS operation\n", port->id);
-	BUG();
+	port->initialized = 1;
+	return 0;
 }
 
 /*****************************************************************************
@@ -1481,7 +1376,7 @@ static int hss_hdlc_open(struct net_device *dev)
 				goto err_unlock;
 			}
 
-	if ((err = hss_config_load_firmware(port)))
+	if ((err = hss_load_firmware(port)))
 		goto err_unlock;
 
 	if (!port->chan_open_count && port->plat->open)
@@ -1517,14 +1412,13 @@ static int hss_hdlc_open(struct net_device *dev)
 	ports_open++;
 	port->hdlc_open = 1;
 
-	hss_config_set_hdlc_cfg(port);
-	hss_config_set_lut(port);
-	hss_config_load(port);
+	hss_set_hdlc_cfg(port);
+	hss_config(port);
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
-		hss_config_start_chan(port);
+		hss_start_chan(port);
 
-	hss_config_start_hdlc(port);
+	hss_start_hdlc(port);
 
 	/* we may already have RX data, enables IRQ */
 	netif_rx_schedule(dev, &port->napi);
@@ -1556,7 +1450,7 @@ static int hss_hdlc_close(struct net_device *dev)
 	netif_stop_queue(dev);
 	napi_disable(&port->napi);
 
-	hss_config_stop_hdlc(port);
+	hss_stop_hdlc(port);
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
 		hss_chan_stop(port);
@@ -1700,10 +1594,9 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 		spin_lock_irqsave(&npe_lock, flags);
 
-		if (port->chan_open_count || port->hdlc_open) {
-			hss_config_set_line(port);
-			hss_config_load(port);
-		}
+		if (port->chan_open_count || port->hdlc_open)
+			hss_config(port);
+
 		if (port->loopback || port->carrier)
 			netif_carrier_on(port->netdev);
 		else
@@ -1839,8 +1732,7 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 		       aligned == EVEN_FIRST ? "even" : "odd");
 #endif
 
-	hss_config_set_rx_frame(port);
-	hss_config_load(port);
+	hss_config(port);
 }
 
 static void chan_process_tx_irq(struct chan_device *chan_dev, int offset)
@@ -1976,7 +1868,7 @@ static int hss_prepare_chan(struct port *port)
 {
 	int err;
 
-	if ((err = hss_config_load_firmware(port)))
+	if ((err = hss_load_firmware(port)))
 		return err;
 
 	if ((err = qmgr_request_queue(queue_ids[port->id].chan,
@@ -2027,23 +1919,22 @@ release_queue:
 
 void hss_chan_stop(struct port *port)
 {
-	if (!port->chan_open_count && !port->hdlc_open)
-		qmgr_disable_irq(queue_ids[port->id].chan);
+	hss_stop_chan(port);
+	hss_config(port);
 
-	hss_config_stop_chan(port);
-	hss_config_set_lut(port);
-	hss_config_load(port);
+	if (port->chan_open_count || port->hdlc_open)
+		return;
 
-	if (!port->chan_open_count && !port->hdlc_open) {
-		dma_unmap_single(port->dev, port->chan_tx_buf_phys,
-				 chan_tx_buf_len(port) +
-				 chan_tx_lists_len(port), DMA_TO_DEVICE);
-		dma_unmap_single(port->dev, port->chan_rx_buf_phys,
-				 chan_rx_buf_len(port), DMA_FROM_DEVICE);
-		kfree(port->chan_buf);
-		port->chan_buf = NULL;
-		qmgr_release_queue(queue_ids[port->id].chan);
-	}
+	qmgr_disable_irq(queue_ids[port->id].chan);
+
+	dma_unmap_single(port->dev, port->chan_tx_buf_phys,
+			 chan_tx_buf_len(port) + chan_tx_lists_len(port),
+			 DMA_TO_DEVICE);
+	dma_unmap_single(port->dev, port->chan_rx_buf_phys,
+			 chan_rx_buf_len(port), DMA_FROM_DEVICE);
+	kfree(port->chan_buf);
+	port->chan_buf = NULL;
+	qmgr_release_queue(queue_ids[port->id].chan);
 }
 
 static int hss_chan_open(struct inode *inode, struct file *file)
@@ -2095,14 +1986,13 @@ static int hss_chan_open(struct inode *inode, struct file *file)
 		}
 	}
 
-	hss_config_stop_chan(port);
+	hss_stop_chan(port);
 	chan_dev->open_count++;
 	port->chan_open_count++;
 	chan_dev->excl_open = !!file->f_flags & O_EXCL;
 
-	hss_config_set_lut(port);
-	hss_config_load(port);
-	hss_config_start_chan(port);
+	hss_config(port);
+	hss_start_chan(port);
 out:
 	spin_unlock_irqrestore(&npe_lock, flags);
 	return err;
@@ -2122,10 +2012,9 @@ static int hss_chan_release(struct inode *inode, struct file *file)
 			if (port->plat->close)
 				port->plat->close(port->id, port->netdev);
 		} else {
-			hss_config_stop_chan(port);
-			hss_config_set_lut(port);
-			hss_config_set_line(port); //
-			hss_config_start_chan(port);
+			hss_stop_chan(port);
+			hss_config(port);
+			hss_start_chan(port);
 		}
 	}
 
@@ -2225,7 +2114,7 @@ static ssize_t hss_chan_write(struct file *file, const char __user *buf,
 #endif
 		if (count == 0)
 			goto out;	/* no need to wait */
-		
+
 		if (chan_dev->tx_count < CHAN_TX_FRAMES * chan_dev->chan_count)
 			break;
 
@@ -2476,10 +2365,8 @@ static ssize_t set_hdlc_chan(struct device *dev, struct device_attribute *attr,
 		else if (port->channels[ch] == CHANNEL_HDLC)
 			port->channels[ch] = CHANNEL_UNUSED;
 
-	if (port->chan_open_count || port->hdlc_open) {
-		hss_config_set_lut(port);
-		hss_config_load(port);
-	}
+	if (port->chan_open_count || port->hdlc_open)
+		hss_config(port);
 
 	spin_unlock_irqrestore(&npe_lock, flags);
 	return orig_len;
@@ -2526,10 +2413,9 @@ static ssize_t set_clock_type(struct device *dev, struct device_attribute *attr,
 		goto err;
 	}
 	port->clock_type = clk;
-	if (port->chan_open_count || port->hdlc_open) {
-		hss_config_set_line(port);
-		hss_config_load(port);
-	}
+	if (port->chan_open_count || port->hdlc_open)
+		hss_config(port);
+
 	spin_unlock_irqrestore(&npe_lock, flags);
 
 	return orig_len;
@@ -2642,10 +2528,8 @@ static ssize_t set_frame_offset(struct device *dev,
 	spin_lock_irqsave(&npe_lock, flags);
 
 	port->frame_sync_offset = offset;
-	if (port->chan_open_count || port->hdlc_open) {
-		hss_config_set_rx_frame(port);
-		hss_config_load(port);
-	}
+	if (port->chan_open_count || port->hdlc_open)
+		hss_config(port);
 
 	spin_unlock_irqrestore(&npe_lock, flags);
 	return orig_len;
@@ -2680,10 +2564,9 @@ static ssize_t set_loopback(struct device *dev, struct device_attribute *attr,
 
 	if (port->loopback != lb) {
 		port->loopback = lb;
-		if (port->chan_open_count || port->hdlc_open) {
-			hss_config_set_core(port);
-			hss_config_load(port);
-		}
+		if (port->chan_open_count || port->hdlc_open)
+			hss_config(port);
+
 		if (port->loopback || port->carrier)
 			netif_carrier_on(port->netdev);
 		else
