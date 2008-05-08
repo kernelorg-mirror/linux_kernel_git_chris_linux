@@ -807,6 +807,7 @@ static void hss_config_stop_chan(struct port *port)
 		BUG();
 	}
 	hss_config_get_status(port); /* make sure it's halted */
+	port->chan_started = 0;
 }
 
 static void hss_config_start_hdlc(struct port *port)
