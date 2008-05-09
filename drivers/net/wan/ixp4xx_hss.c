@@ -1920,7 +1920,6 @@ release_queue:
 void hss_shutdown_chan(struct port *port)
 {
 	hss_stop_chan(port);
-	hss_config(port);
 
 	qmgr_disable_irq(queue_ids[port->id].chan);
 
@@ -2362,7 +2361,7 @@ static ssize_t set_hdlc_chan(struct device *dev, struct device_attribute *attr,
 		else if (port->channels[ch] == CHANNEL_HDLC)
 			port->channels[ch] = CHANNEL_UNUSED;
 
-	if (port->chan_open_count || port->hdlc_open)
+	if (port->hdlc_open)
 		hss_config(port);
 
 	spin_unlock_irqrestore(&npe_lock, flags);
