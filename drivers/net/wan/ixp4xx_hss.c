@@ -1,7 +1,7 @@
 /*
  * Intel IXP4xx HSS (synchronous serial port) driver for Linux
  *
- * Copyright (C) 2007 Krzysztof Halasa <khc@pm.waw.pl>
+ * Copyright (C) 2007-2008 Krzysztof Hałasa <khc@pm.waw.pl>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of version 2 of the GNU General Public License
@@ -13,9 +13,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/dmapool.h>
 #include <linux/fs.h>
+#include <linux/hdlc.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
-#include <linux/hdlc.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
 #include <asm/arch/npe.h>
@@ -377,6 +378,7 @@ static int chan_major;
 static int ports_open;
 static struct dma_pool *dma_pool;
 static spinlock_t npe_lock;
+static DEFINE_MUTEX(firmware_mutex);
 
 static const struct {
 	int tx, txdone, rx, rxfree, chan;
@@ -756,16 +758,18 @@ static void hss_stop_hdlc(struct port *port)
 static int hss_load_firmware(struct port *port)
 {
 	struct msg msg;
+	int err = 0;
+
+	if ((err = mutex_lock_interruptible(&firmware_mutex)))
+		return err;
 
 	if (port->initialized)
-		return 0;
+		goto out;
 
-	if (!npe_running(port->npe)) {
-		int err;
-		if ((err = npe_load_firmware(port->npe, npe_name(port->npe),
-					     port->dev)))
-			return err;
-	}
+	if (!npe_running(port->npe) &&
+	    (err = npe_load_firmware(port->npe, npe_name(port->npe),
+				     port->dev)))
+		goto out;
 
 	/* HDLC mode configuration */
 	memset(&msg, 0, sizeof(msg));
@@ -816,7 +820,9 @@ static int hss_load_firmware(struct port *port)
 	hss_npe_send(port, &msg, "CHAN_TX_BUF_SIZE_WRITE");
 
 	port->initialized = 1;
-	return 0;
+out:
+	mutex_unlock(&firmware_mutex);
+	return err;
 }
 
 /*****************************************************************************
