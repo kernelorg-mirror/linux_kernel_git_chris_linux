@@ -1357,6 +1357,9 @@ static int hss_hdlc_open(struct net_device *dev)
 	if ((err = hdlc_open(dev)))
 		return err;
 
+	if ((err = hss_load_firmware(port)))
+		goto err_hdlc_close;
+
 	if ((err = request_hdlc_queues(port)))
 		goto err_hdlc_close;
 
@@ -1375,9 +1378,6 @@ static int hss_hdlc_open(struct net_device *dev)
 				err = -ECHRNG; /* frame too short */
 				goto err_unlock;
 			}
-
-	if ((err = hss_load_firmware(port)))
-		goto err_unlock;
 
 	if (!port->chan_open_count && port->plat->open)
 		if ((err = port->plat->open(port->id, dev,
@@ -1868,9 +1868,6 @@ static int hss_prepare_chan(struct port *port)
 {
 	int err;
 
-	if ((err = hss_load_firmware(port)))
-		return err;
-
 	if ((err = qmgr_request_queue(queue_ids[port->id].chan,
 				      CHAN_QUEUE_LEN, 0, 0)))
 		return err;
@@ -1939,6 +1936,9 @@ static int hss_chan_open(struct inode *inode, struct file *file)
 	struct port *port = chan_dev->port;
 	unsigned long flags;
 	int i, err = 0;
+
+	if ((err = hss_load_firmware(port)))
+		return err;
 
 	spin_lock_irqsave(&npe_lock, flags);
 
