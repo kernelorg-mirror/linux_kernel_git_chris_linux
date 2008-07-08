@@ -985,7 +985,6 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 #endif
 
 		if ((n = queue_get_desc(rxq, port, 0)) < 0) {
-			received = 0; /* No packet received */
 #if DEBUG_RX
 			printk(KERN_DEBUG "%s: hss_hdlc_poll"
 			       " netif_rx_complete\n", dev->name);
@@ -1006,7 +1005,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 			printk(KERN_DEBUG "%s: hss_hdlc_poll all done\n",
 			       dev->name);
 #endif
-			return 0; /* all work done */
+			return received; /* all work done */
 		}
 
 		desc = rx_desc_ptr(port, n);
