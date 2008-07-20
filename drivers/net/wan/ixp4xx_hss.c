@@ -2490,7 +2490,7 @@ static ssize_t set_frame_size(struct device *dev, struct device_attribute *attr,
 	spin_lock_irqsave(&npe_lock, flags);
 	if (port->mode != MODE_RAW && port->mode != MODE_G704)
 		ret = -EINVAL;
-	else if (!port->chan_open_count && !port->hdlc_open)
+	else if (port->chan_open_count || port->hdlc_open)
 		ret = -EBUSY;
 	else {
 		port->frame_size = size;
@@ -2615,9 +2615,9 @@ static ssize_t set_mode(struct device *dev, struct device_attribute *attr,
 
 	spin_lock_irqsave(&npe_lock, flags);
 
-	if (port->chan_open_count || port->hdlc_open) {
+	if (port->chan_open_count || port->hdlc_open)
 		ret = -EBUSY;
-	} else if (len == 4 && !memcmp(buf, "hdlc", 4))
+	else if (len == 4 && !memcmp(buf, "hdlc", 4))
 		port->mode = MODE_HDLC;
 	else if (len == 3 && !memcmp(buf, "raw", 3))
 		port->mode = MODE_RAW;
