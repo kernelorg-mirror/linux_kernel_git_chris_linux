@@ -2505,6 +2505,9 @@ static ssize_t show_frame_offset(struct device *dev,
 {
 	struct port *port = dev_get_drvdata(dev);
 
+	if (port->mode != MODE_RAW && port->mode != MODE_G704)
+		return -EINVAL;
+
 	sprintf(buf, "%u\n", port->frame_sync_offset);
 	return strlen(buf) + 1;
 }
@@ -2514,7 +2517,7 @@ static ssize_t set_frame_offset(struct device *dev,
 				const char *buf, size_t len)
 {
 	struct port *port = dev_get_drvdata(dev);
-	size_t orig_len = len;
+	size_t ret = len;
 	unsigned long flags;
 	unsigned int offset;
 
@@ -2527,13 +2530,16 @@ static ssize_t set_frame_offset(struct device *dev,
 		return -EINVAL;
 
 	spin_lock_irqsave(&npe_lock, flags);
-
-	port->frame_sync_offset = offset;
-	if (port->chan_open_count || port->hdlc_open)
-		hss_config(port);
+	if (port->mode != MODE_RAW && port->mode != MODE_G704)
+		ret = -EINVAL;
+	else {
+		port->frame_sync_offset = offset;
+		if (port->chan_open_count || port->hdlc_open)
+			hss_config(port);
+	}
 
 	spin_unlock_irqrestore(&npe_lock, flags);
-	return orig_len;
+	return ret;
 }
 
 static ssize_t show_loopback(struct device *dev, struct device_attribute *attr,
