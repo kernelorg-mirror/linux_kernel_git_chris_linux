@@ -1023,7 +1023,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 				phys = dma_map_single(&dev->dev, skb->data,
 						      RX_SIZE,
 						      DMA_FROM_DEVICE);
-				if (dma_mapping_error(phys)) {
+				if (dma_mapping_error(&dev->dev, phys)) {
 					dev_kfree_skb(skb);
 					skb = NULL;
 				}
@@ -1182,7 +1182,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 #endif
 
 	phys = dma_map_single(&dev->dev, mem, bytes, DMA_TO_DEVICE);
-	if (dma_mapping_error(phys)) {
+	if (dma_mapping_error(&dev->dev, phys)) {
 #ifdef __ARMEB__
 		dev_kfree_skb(skb);
 #else
@@ -1310,7 +1310,7 @@ static int init_hdlc_queues(struct port *port)
 		desc->buf_len = RX_SIZE;
 		desc->data = dma_map_single(&port->netdev->dev, data,
 					    RX_SIZE, DMA_FROM_DEVICE);
-		if (dma_mapping_error(desc->data)) {
+		if (dma_mapping_error(&port->netdev->dev, desc->data)) {
 			free_buffer(buff);
 			return -EIO;
 		}
@@ -1888,7 +1888,7 @@ static int hss_prepare_chan(struct port *port)
 						chan_tx_buf_len(port) +
 						chan_tx_lists_len(port),
 						DMA_TO_DEVICE);
-	if (dma_mapping_error(port->chan_tx_buf_phys)) {
+	if (dma_mapping_error(port->dev, port->chan_tx_buf_phys)) {
 		err = -EIO;
 		goto free;
 	}
@@ -1896,7 +1896,7 @@ static int hss_prepare_chan(struct port *port)
 	port->chan_rx_buf_phys = dma_map_single(port->dev, chan_rx_buf(port),
 						chan_rx_buf_len(port),
 						DMA_FROM_DEVICE);
-	if (dma_mapping_error(port->chan_rx_buf_phys)) {
+	if (dma_mapping_error(port->dev, port->chan_rx_buf_phys)) {
 		err = -EIO;
 		goto unmap_tx;
 	}
