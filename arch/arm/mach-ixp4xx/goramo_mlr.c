@@ -417,8 +417,8 @@ static void __init gmlr_init(void)
 	gpio_line_config(GPIO_HSS1_RTS_N, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS0_DCD_N, IXP4XX_GPIO_IN);
 	gpio_line_config(GPIO_HSS1_DCD_N, IXP4XX_GPIO_IN);
-	set_irq_type(gpio_irq(GPIO_HSS0_DCD_N), IRQT_BOTHEDGE);
-	set_irq_type(gpio_irq(GPIO_HSS1_DCD_N), IRQT_BOTHEDGE);
+	set_irq_type(gpio_irq(GPIO_HSS0_DCD_N), IRQ_TYPE_EDGE_BOTH);
+	set_irq_type(gpio_irq(GPIO_HSS1_DCD_N), IRQ_TYPE_EDGE_BOTH);
 
 	set_control(CONTROL_HSS0_DTR_N, 1);
 	set_control(CONTROL_HSS1_DTR_N, 1);
@@ -438,8 +438,8 @@ static void __init gmlr_init(void)
 #ifdef CONFIG_PCI
 static void __init gmlr_pci_preinit(void)
 {
-	set_irq_type(IRQ_NEC, IRQT_LOW);
-	set_irq_type(IRQ_MPCI, IRQT_LOW);
+	set_irq_type(IRQ_NEC, IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(IRQ_MPCI, IRQ_TYPE_LEVEL_LOW);
 	ixp4xx_pci_preinit();
 }
 
