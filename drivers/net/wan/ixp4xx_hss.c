@@ -19,8 +19,8 @@
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/poll.h>
-#include <asm/arch/npe.h>
-#include <asm/arch/qmgr.h>
+#include <mach/npe.h>
+#include <mach/qmgr.h>
 
 #define DEBUG_QUEUES		0
 #define DEBUG_DESC		0
