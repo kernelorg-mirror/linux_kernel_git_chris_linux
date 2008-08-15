@@ -968,7 +968,6 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 	struct net_device *dev = port->netdev;
 	unsigned int rxq = queue_ids[port->id].rx;
 	unsigned int rxfreeq = queue_ids[port->id].rxfree;
-	struct net_device_stats *stats = hdlc_stats(dev);
 	int received = 0;
 
 #if DEBUG_RX
@@ -1032,26 +1031,26 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 			skb = netdev_alloc_skb(dev, desc->pkt_len);
 #endif
 			if (!skb)
-				stats->rx_dropped++;
+				dev->stats.rx_dropped++;
 			break;
 		case ERR_HDLC_ALIGN:
 		case ERR_HDLC_ABORT:
-			stats->rx_frame_errors++;
-			stats->rx_errors++;
+			dev->stats.rx_frame_errors++;
+			dev->stats.rx_errors++;
 			break;
 		case ERR_HDLC_FCS:
-			stats->rx_crc_errors++;
-			stats->rx_errors++;
+			dev->stats.rx_crc_errors++;
+			dev->stats.rx_errors++;
 			break;
 		case ERR_HDLC_TOO_LONG:
-			stats->rx_length_errors++;
-			stats->rx_errors++;
+			dev->stats.rx_length_errors++;
+			dev->stats.rx_errors++;
 			break;
 		default:	/* FIXME - remove printk */
 			printk(KERN_ERR "%s: hss_hdlc_poll: status 0x%02X"
 			       " errors %u\n", dev->name, desc->status,
 			       desc->error_count);
-			stats->rx_errors++;
+			dev->stats.rx_errors++;
 		}
 
 		if (!skb) {
@@ -1080,8 +1079,8 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 
 		skb->protocol = hdlc_type_trans(skb, dev);
 		dev->last_rx = jiffies;
-		stats->rx_packets++;
-		stats->rx_bytes += skb->len;
+		dev->stats.rx_packets++;
+		dev->stats.rx_bytes += skb->len;
 		netif_receive_skb(skb);
 
 		/* put the new buffer on RX-free queue */
@@ -1105,7 +1104,6 @@ static void hss_hdlc_txdone_irq(void *pdev)
 {
 	struct net_device *dev = pdev;
 	struct port *port = dev_to_port(dev);
-	struct net_device_stats *stats = hdlc_stats(dev);
 	int n_desc;
 
 #if DEBUG_TX
@@ -1118,8 +1116,8 @@ static void hss_hdlc_txdone_irq(void *pdev)
 
 		desc = tx_desc_ptr(port, n_desc);
 
-		stats->tx_packets++;
-		stats->tx_bytes += desc->pkt_len;
+		dev->stats.tx_packets++;
+		dev->stats.tx_bytes += desc->pkt_len;
 
 		dma_unmap_tx(port, desc);
 #if DEBUG_TX
@@ -1145,7 +1143,6 @@ static void hss_hdlc_txdone_irq(void *pdev)
 static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
-	struct net_device_stats *stats = hdlc_stats(dev);
 	unsigned int txreadyq = port->plat->txreadyq;
 	int len, offset, bytes, n;
 	void *mem;
@@ -1158,7 +1155,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	if (unlikely(skb->len > HDLC_MAX_MRU)) {
 		dev_kfree_skb(skb);
-		stats->tx_errors++;
+		dev->stats.tx_errors++;
 		return NETDEV_TX_OK;
 	}
 
@@ -1174,7 +1171,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 	bytes = ALIGN(offset + len, 4);
 	if (!(mem = kmalloc(bytes, GFP_ATOMIC))) {
 		dev_kfree_skb(skb);
-		stats->tx_dropped++;
+		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
 	memcpy_swab32(mem, (u32 *)((int)skb->data & ~3), bytes / 4);
@@ -1188,7 +1185,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 #else
 		kfree(mem);
 #endif
-		stats->tx_dropped++;
+		dev->stats.tx_dropped++;
 		return NETDEV_TX_OK;
 	}
 
