@@ -2253,7 +2253,7 @@ static ssize_t create_chan(struct device *dev, struct device_attribute *attr,
 	u8 channels[MAX_CHANNELS];
 	size_t orig_len = len;
 	unsigned long flags;
-	unsigned int ch, id;
+	unsigned int ch, id, first_channel;
 	int minor, err;
 
 	if ((err = parse_channels(&buf, &len, channels)) < 1)
@@ -2285,15 +2285,16 @@ static ssize_t create_chan(struct device *dev, struct device_attribute *attr,
 		goto free;
 	}
 
-	for (ch = 0; ch < MAX_CHANNELS; ch++)
-		if (channels[ch])
+	for (first_channel = 0; first_channel < MAX_CHANNELS; first_channel++)
+		if (channels[first_channel])
 			break;
 
-	minor = port->id * MAX_CHAN_DEVICES + ch;
+	minor = port->id * MAX_CHAN_DEVICES + first_channel;
 	chan_dev->id = id;
 	chan_dev->port = port;
 	chan_dev->dev = device_create(hss_class, dev, MKDEV(chan_major, minor),
-				      "hss%uch%u", port->id, ch);
+				      chan_dev, "hss%uch%u", port->id,
+				      first_channel);
 	if (IS_ERR(chan_dev->dev)) {
 		err = PTR_ERR(chan_dev->dev);
 		goto free;
@@ -2304,11 +2305,10 @@ static ssize_t create_chan(struct device *dev, struct device_attribute *attr,
 	if ((err = cdev_add(&chan_dev->cdev, MKDEV(chan_major, minor), 1)))
 		goto destroy_device;
 
-	for (ch = 0; ch < MAX_CHANNELS; ch++)
+	for (ch = first_channel; ch < MAX_CHANNELS; ch++)
 		if (channels[ch])
 			port->channels[ch] = id;
 	port->chan_devices[id] = chan_dev;
-	dev_set_drvdata(chan_dev->dev, chan_dev);
 	BUG_ON(device_create_file(chan_dev->dev, &chan_attr));
 
 	spin_unlock_irqrestore(&npe_lock, flags);
