@@ -20,9 +20,13 @@
 #define xgpio_irq(n)		(IRQ_IXP4XX_GPIO ## n)
 #define gpio_irq(n)		xgpio_irq(n)
 
-#define SLOT_NEC		14	/* IDSEL = AD18 */
-#define SLOT_MPCI		13	/* IDSEL = AD19 */
+#define SLOT_ETHA		0x0B	/* IDSEL = AD21 */
+#define SLOT_ETHB		0x0C	/* IDSEL = AD20 */
+#define SLOT_MPCI		0x0D	/* IDSEL = AD19 */
+#define SLOT_NEC		0x0E	/* IDSEL = AD18 */
 
+#define IRQ_ETHA		IRQ_IXP4XX_GPIO5
+#define IRQ_ETHB		IRQ_IXP4XX_GPIO4
 #define IRQ_NEC			IRQ_IXP4XX_GPIO3
 #define IRQ_MPCI		IRQ_IXP4XX_GPIO12
 
@@ -438,14 +442,18 @@ static void __init gmlr_init(void)
 #ifdef CONFIG_PCI
 static void __init gmlr_pci_preinit(void)
 {
-	set_irq_type(IRQ_NEC, IRQT_LOW);
-	set_irq_type(IRQ_MPCI, IRQT_LOW);
+	set_irq_type(IRQ_ETHA, IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(IRQ_ETHB, IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(IRQ_NEC, IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(IRQ_MPCI, IRQ_TYPE_LEVEL_LOW);
 	ixp4xx_pci_preinit();
 }
 
 static int __init gmlr_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
 	switch(slot) {
+	case SLOT_ETHA:	return IRQ_ETHA;
+	case SLOT_ETHB:	return IRQ_ETHB;
 	case SLOT_NEC:	return IRQ_NEC;
 	default:	return IRQ_MPCI;
 	}
