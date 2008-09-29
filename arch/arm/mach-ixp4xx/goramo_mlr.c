@@ -462,9 +462,8 @@ static struct hw_pci gmlr_hw_pci __initdata = {
 
 static void __init gmlr_setup_nec(struct pci_dev *dev)
 {
-	if (dev->bus->number != 0 &&
-	    PCI_SLOT(dev->devfn) != SLOT_NEC &&
-	    PCI_FUNC(dev->devfn) != 0)
+	if (dev->bus->number != 0 ||
+	    PCI_SLOT(dev->devfn) != SLOT_NEC || PCI_FUNC(dev->devfn) != 0)
 		return; /* not our NEC USB chip */
 
 	if ((hw_bits & CONFIG_HW_USB_PORTS) >= 2 &&
