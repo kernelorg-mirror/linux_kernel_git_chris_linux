@@ -521,9 +521,7 @@ static void hss_config_set_lut(struct port *port)
 {
 	struct msg msg;
 	int chan_count = 0, log_chan = 0, i, ch;
-	u32 lut[MAX_CHANNELS / 4];
 
-	memset(lut, 0, sizeof(lut));
 	for (i = 0; i < MAX_CHAN_DEVICES; i++)
 		if (port->chan_devices[i])
 			port->chan_devices[i]->chan_count = 0;
