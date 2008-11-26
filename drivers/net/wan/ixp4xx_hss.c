@@ -835,13 +835,13 @@ static inline void debug_pkt(struct net_device *dev, const char *func,
 #if DEBUG_PKT_BYTES
 	int i;
 
-	printk(KERN_DEBUG "%s: %s(%i) ", dev->name, func, len);
+	printk(KERN_DEBUG "%s: %s(%i)", dev->name, func, len);
 	for (i = 0; i < len; i++) {
 		if (i >= DEBUG_PKT_BYTES)
 			break;
-		printk(KERN_DEBUG "%s%02X", !(i % 4) ? " " : "", data[i]);
+		printk("%s%02X", !(i % 4) ? " " : "", data[i]);
 	}
-	printk(KERN_DEBUG "\n");
+	printk("\n");
 #endif
 }
 
