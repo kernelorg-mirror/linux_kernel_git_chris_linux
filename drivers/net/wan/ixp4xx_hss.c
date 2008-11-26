@@ -2717,7 +2717,7 @@ static int __devexit hss_remove_one(struct platform_device *pdev)
 	return 0;
 }
 
-static struct platform_driver drv = {
+static struct platform_driver ixp4xx_hss_driver = {
 	.driver.name	= DRV_NAME,
 	.probe		= hss_init_one,
 	.remove		= hss_remove_one,
@@ -2744,7 +2744,7 @@ static int __init hss_init_module(void)
 		err = PTR_ERR(hss_class);
 		goto free_chrdev;
 	}
-	if ((err = platform_driver_register(&drv)))
+	if ((err = platform_driver_register(&ixp4xx_hss_driver)))
 		goto destroy_class;
 
 	chan_major = MAJOR(rdev);
@@ -2760,7 +2760,7 @@ free_chrdev:
 
 static void __exit hss_cleanup_module(void)
 {
-	platform_driver_unregister(&drv);
+	platform_driver_unregister(&ixp4xx_hss_driver);
 	class_destroy(hss_class);
 	unregister_chrdev_region(MKDEV(chan_major, 0),
 				 HSS_COUNT * MAX_CHAN_DEVICES);
