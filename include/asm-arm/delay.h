@@ -32,7 +32,7 @@ extern void __bad_udelay(void);
 extern void __udelay(unsigned long usecs);
 extern void __const_udelay(unsigned long);
 
-#define MAX_UDELAY_MS 2
+#define MAX_UDELAY_MS 3
 
 #define udelay(n)							\
 	(__builtin_constant_p(n) ?					\

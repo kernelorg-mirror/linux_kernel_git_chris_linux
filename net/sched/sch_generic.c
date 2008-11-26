@@ -203,6 +203,7 @@ void __qdisc_run(struct net_device *dev)
 
 	clear_bit(__LINK_STATE_QDISC_RUNNING, &dev->state);
 }
+EXPORT_SYMBOL(__qdisc_run);
 
 static void dev_watchdog(unsigned long arg)
 {
