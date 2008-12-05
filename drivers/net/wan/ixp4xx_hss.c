@@ -2649,16 +2649,12 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 
 	if ((port = kzalloc(sizeof(*port), GFP_KERNEL)) == NULL)
 		return -ENOMEM;
-	platform_set_drvdata(pdev, port);
-	port->id = pdev->id;
 
 	if ((port->npe = npe_request(0)) == NULL) {
 		err = -ENOSYS;
 		goto err_free;
 	}
 
-	port->dev = &pdev->dev;
-	port->plat = pdev->dev.platform_data;
 	if ((port->netdev = dev = alloc_hdlcdev(port)) == NULL) {
 		err = -ENOMEM;
 		goto err_plat;
@@ -2675,6 +2671,9 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	port->clock_type = CLOCK_EXT;
 	port->clock_rate = 2048000;
 	port->frame_size = 256; /* E1 */
+	port->id = pdev->id;
+	port->dev = &pdev->dev;
+	port->plat = pdev->dev.platform_data;
 	memset(port->channels, CHANNEL_UNUSED, sizeof(port->channels));
 	init_waitqueue_head(&port->chan_tx_waitq);
 	init_waitqueue_head(&port->chan_rx_waitq);
@@ -2682,6 +2681,8 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 
 	if ((err = register_hdlc_device(dev))) /* HDLC mode by default */
 		goto err_free_netdev;
+
+	platform_set_drvdata(pdev, port);
 
 	for (i = 0; i < ARRAY_SIZE(hss_attrs); i++)
 		BUG_ON(device_create_file(port->dev, &hss_attrs[i]));
@@ -2693,7 +2694,6 @@ err_free_netdev:
 	free_netdev(dev);
 err_plat:
 	npe_release(port->npe);
-	platform_set_drvdata(pdev, NULL);
 err_free:
 	kfree(port);
 	return err;
