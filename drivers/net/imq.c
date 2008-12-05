@@ -76,7 +76,7 @@
 
 struct imq_private {
 	struct tasklet_struct tasklet;
-	int tasklet_pending;
+	long tasklet_pending;
 };
 
 static nf_hookfn imq_nf_hook;
@@ -219,8 +219,8 @@ static int imq_nf_queue(struct nf_queue_entry *entry, unsigned queue_num)
 	dev->stats.rx_bytes += entry->skb->len;
 	dev->stats.rx_packets++;
 
-	spin_lock_bh(&dev->queue_lock);
-	q = dev->qdisc;
+	netif_tx_lock_bh(dev);
+	q = netdev_get_tx_queue(dev, queue_num)->qdisc;
 	if (q->enqueue) {
 		q->enqueue(skb_get(entry->skb), q);
 		if (skb_shared(entry->skb)) {
@@ -231,7 +231,7 @@ static int imq_nf_queue(struct nf_queue_entry *entry, unsigned queue_num)
 	}
 	if (!test_and_set_bit(1, &priv->tasklet_pending))
 		tasklet_schedule(&priv->tasklet);
-	spin_unlock_bh(&dev->queue_lock);
+	netif_tx_unlock_bh(dev);
 
 	if (skb2)
 		kfree_skb(ret ? entry->skb : skb2);
@@ -249,10 +249,10 @@ static void qdisc_run_tasklet(unsigned long arg)
 	struct net_device *dev = (struct net_device *)arg;
 	struct imq_private *priv = netdev_priv(dev);
 
-	spin_lock(&dev->queue_lock);
-	qdisc_run(dev);
+	netif_tx_lock(dev);
+	qdisc_run(netdev_get_tx_queue(dev, 0)->qdisc);
 	clear_bit(1, &priv->tasklet_pending);
-	spin_unlock(&dev->queue_lock);
+	netif_tx_unlock(dev);
 }
 
 static unsigned int imq_nf_hook(unsigned int hook, struct sk_buff *pskb,
