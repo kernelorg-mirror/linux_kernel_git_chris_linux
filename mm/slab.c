@@ -787,6 +787,10 @@ static inline struct kmem_cache *__find_general_cachep(size_t size,
 #ifdef CONFIG_ZONE_DMA
 	if (unlikely(gfpflags & GFP_DMA))
 		return csizep->cs_dmacachep;
+#ifdef CONFIG_ZONE_DMA_ALL_KERNEL
+	if (likely((gfpflags & GFP_USER) != GFP_USER))
+		return csizep->cs_dmacachep;
+#endif
 #endif
 	return csizep->cs_cachep;
 }
@@ -2268,6 +2272,7 @@ kmem_cache_create (const char *name, size_t size, size_t align,
 	align = ralign;
 
 	/* Get cache's description obj. */
+	/* FIXME seems here */
 	cachep = kmem_cache_zalloc(&cache_cache, GFP_KERNEL);
 	if (!cachep)
 		goto oops;
@@ -2681,6 +2686,10 @@ static void kmem_flagcheck(struct kmem_cache *cachep, gfp_t flags)
 	if (CONFIG_ZONE_DMA_FLAG) {
 		if (flags & GFP_DMA)
 			BUG_ON(!(cachep->gfpflags & GFP_DMA));
+#ifdef CONFIG_ZONE_DMA_ALL_KERNEL
+		else if ((flags & GFP_USER) != GFP_USER)
+			;
+#endif
 		else
 			BUG_ON(cachep->gfpflags & GFP_DMA);
 	}
