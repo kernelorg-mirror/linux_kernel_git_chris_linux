@@ -70,6 +70,7 @@ void qmgr_disable_irq(unsigned int queue)
 	spin_lock_irqsave(&qmgr_lock, flags);
 	__raw_writel(__raw_readl(&qmgr_regs->irqen[0]) & ~(1 << queue),
 		     &qmgr_regs->irqen[0]);
+	__raw_writel(1 << queue, &qmgr_regs->irqstat[0]); /* clear */
 	spin_unlock_irqrestore(&qmgr_lock, flags);
 }
 
@@ -199,6 +200,10 @@ void qmgr_release_queue(unsigned int queue)
 	spin_unlock_irq(&qmgr_lock);
 
 	module_put(THIS_MODULE);
+
+	while ((addr = qmgr_get_entry(queue)))
+		printk(KERN_ERR "qmgr: released queue %d not empty: 0x%08X\n",
+		       queue, addr);
 #if DEBUG
 	printk(KERN_DEBUG "qmgr: released queue %i\n", queue);
 #endif

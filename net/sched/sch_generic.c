@@ -188,6 +188,7 @@ void __qdisc_run(struct Qdisc *q)
 
 	clear_bit(__QDISC_STATE_RUNNING, &q->state);
 }
+EXPORT_SYMBOL(__qdisc_run);
 
 static void dev_watchdog(unsigned long arg)
 {

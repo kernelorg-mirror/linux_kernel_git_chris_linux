@@ -78,6 +78,12 @@ config MACH_IXDP465
 	  IXDP465 Development Platform (Also known as BMP).
 	  For more information on this platform, see <file:Documentation/arm/IXP4xx>.
 
+config MACH_GORAMO_MLR
+	bool "GORAMO Multi Link Router"
+	help
+	  Say 'Y' here if you want your kernel to support GORAMO
+	  MultiLink router.
+
 config MACH_KIXRP435
 	bool "KIXRP435"
 	help
@@ -197,6 +203,10 @@ config IXP4XX_INDIRECT_PCI
 	  By default, the direct method is used. Choose this option if you
 	  need to use the indirect method instead. If you don't know
 	  what you need, leave this option unselected.
+
+config ZONE_DMA_ALL_KERNEL
+	bool
+	default y
 
 config IXP4XX_QMGR
 	tristate "IXP4xx Queue Manager support"
