@@ -90,3 +90,5 @@ obj-$(CONFIG_IP_NF_SET_SETLIST) += ip_set_setlist.o
 # match and target
 obj-$(CONFIG_IP_NF_MATCH_SET) += ipt_set.o
 obj-$(CONFIG_IP_NF_TARGET_SET) += ipt_SET.o
+
+obj-$(CONFIG_IP_NF_MATCH_IPP2P) += ipt_ipp2p.o
