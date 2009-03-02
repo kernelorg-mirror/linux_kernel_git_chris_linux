@@ -308,6 +308,10 @@ struct sk_buff {
 	struct nf_conntrack	*nfct;
 	struct sk_buff		*nfct_reasm;
 #endif
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+	unsigned char			imq_flags;
+	struct nf_queue_entry	*nf_queue_entry;
+#endif
 #ifdef CONFIG_BRIDGE_NETFILTER
 	struct nf_bridge_info	*nf_bridge;
 #endif
@@ -1812,6 +1816,10 @@ static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src)
 	dst->nfctinfo = src->nfctinfo;
 	dst->nfct_reasm = src->nfct_reasm;
 	nf_conntrack_get_reasm(src->nfct_reasm);
+#endif
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+	dst->imq_flags = src->imq_flags;
+	dst->nf_queue_entry = src->nf_queue_entry;
 #endif
 #ifdef CONFIG_BRIDGE_NETFILTER
 	dst->nf_bridge  = src->nf_bridge;
