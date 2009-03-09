@@ -1,6 +1,6 @@
 /*
  * Goramo MultiLink router platform code
- * Copyright (C) 2006-2008 Krzysztof Halasa <khc@pm.waw.pl>
+ * Copyright (C) 2006-2009 Krzysztof Halasa <khc@pm.waw.pl>
  */
 
 #include <linux/delay.h>
@@ -468,34 +468,28 @@ static struct hw_pci gmlr_hw_pci __initdata = {
 	.map_irq	= gmlr_map_irq,
 };
 
-static void __init gmlr_setup_nec(struct pci_dev *dev)
+static int __init gmlr_pci_init(void)
 {
-	if (dev->bus->number != 0 ||
-	    PCI_SLOT(dev->devfn) != SLOT_NEC || PCI_FUNC(dev->devfn) != 0)
-		return; /* not our NEC USB chip */
+	if (!machine_is_goramo_mlr() ||
+	    !(hw_bits & (CONFIG_HW_USB_PORTS | CONFIG_HW_HAS_PCI_SLOT)))
+		return 0;
+
+	pci_common_init(&gmlr_hw_pci);
 
 	if ((hw_bits & CONFIG_HW_USB_PORTS) >= 2 &&
 	    (hw_bits & CONFIG_HW_USB_PORTS) < 5) {
-		/* need to adjust number of USB ports */
-		u32 value;
-		if (pci_read_config_dword(dev, 0xE0, &value))
-			return;
-		value &= ~7;
-		value |= (hw_bits & CONFIG_HW_USB_PORTS);
-		pci_write_config_dword(dev, 0xE0, value );
+		/* need to adjust number of USB ports on NEC chip */
+		u32 value, addr = BIT(32 - SLOT_NEC) | 0xE0;
+		if (!ixp4xx_pci_read(addr, NP_CMD_CONFIGREAD, &value)) {
+			value &= ~7;
+			value |= (hw_bits & CONFIG_HW_USB_PORTS);
+			ixp4xx_pci_write(addr, NP_CMD_CONFIGWRITE, value);
+		}
 	}
-}
 
-static int __init gmlr_pci_init(void)
-{
-	if (machine_is_goramo_mlr() &&
-	    (hw_bits & (CONFIG_HW_USB_PORTS | CONFIG_HW_HAS_PCI_SLOT)))
-		pci_common_init(&gmlr_hw_pci);
 	return 0;
 }
 
-DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NEC, PCI_DEVICE_ID_NEC_USB,
-			 gmlr_setup_nec);
 subsys_initcall(gmlr_pci_init);
 #endif /* CONFIG_PCI */
 
