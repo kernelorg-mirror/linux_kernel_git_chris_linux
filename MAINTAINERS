@@ -1849,7 +1849,7 @@ P:	Haavard Skinnemoen
 M:	hskinnemoen@atmel.com
 S:	Supported
 
-GENERIC HDLC DRIVER, N2, C101, PCI200SYN and WANXL DRIVERS
+GENERIC HDLC (WAN) DRIVERS
 P:	Krzysztof Halasa
 M:	khc@pm.waw.pl
 W:	http://www.kernel.org/pub/linux/utils/net/hdlc/
@@ -2247,6 +2247,11 @@ P:	Dan Williams
 M:	dan.j.williams@intel.com
 L:	linux-kernel@vger.kernel.org
 S:	Supported
+
+INTEL IXP4XX QMGR, NPE, ETHERNET and HSS SUPPORT
+P:	Krzysztof Halasa
+M:	khc@pm.waw.pl
+S:	Maintained
 
 INTEL IXP4XX RANDOM NUMBER GENERATOR SUPPORT
 P:	Deepak Saxena
