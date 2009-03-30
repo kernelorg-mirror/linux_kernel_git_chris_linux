@@ -1719,6 +1719,9 @@ static int e100_rx_indicate(struct nic *nic, struct rx *rx,
 		return -EAGAIN;
 
 	/* Need to sync before taking a peek at cb_complete bit */
+	pci_dma_sync_single_for_device(nic->pdev, rx->dma_addr,
+		sizeof(struct rfd), PCI_DMA_BIDIRECTIONAL);
+	ioread8(&nic->csr->scb.status);
 	pci_dma_sync_single_for_cpu(nic->pdev, rx->dma_addr,
 		sizeof(struct rfd), PCI_DMA_BIDIRECTIONAL);
 	rfd_status = le16_to_cpu(rfd->status);
