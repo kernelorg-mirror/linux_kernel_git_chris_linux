@@ -396,14 +396,18 @@ static void hss_config(struct port *port)
 	msg.cmd = PORT_CONFIG_WRITE;
 	msg.hss_port = port->id;
 	msg.index = HSS_CONFIG_TX_PCR;
-	msg.data32 = PCR_FRM_PULSE_DISABLED | PCR_MSB_ENDIAN |
-		PCR_TX_DATA_ENABLE | PCR_SOF_NO_FBIT;
-	if (port->clock_type == CLOCK_INT)
+	msg.data32 = PCR_DCLK_EDGE_RISING | PCR_FRM_PULSE_DISABLED |
+		PCR_MSB_ENDIAN | PCR_TX_DATA_ENABLE | PCR_SOF_NO_FBIT;
+	if ((port->clock_type & CLOCK_TYPE_MASK) == CLOCK_INT)
 		msg.data32 |= PCR_SYNC_CLK_DIR_OUTPUT;
+	if (port->clock_type & CLOCK_TX_INVERTED)
+		msg.data32 ^= PCR_DCLK_EDGE_RISING;
 	hss_npe_send(port, &msg, "HSS_SET_TX_PCR");
 
 	msg.index = HSS_CONFIG_RX_PCR;
-	msg.data32 ^= PCR_TX_DATA_ENABLE | PCR_DCLK_EDGE_RISING;
+	msg.data32 &= ~(PCR_TX_DATA_ENABLE | PCR_DCLK_EDGE_RISING);
+	if (port->clock_type & CLOCK_RX_INVERTED)
+		msg.data32 ^= PCR_DCLK_EDGE_RISING;
 	hss_npe_send(port, &msg, "HSS_SET_RX_PCR");
 
 	memset(&msg, 0, sizeof(msg));
@@ -1279,14 +1283,17 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (port->plat->set_clock)
 			clk = port->plat->set_clock(port->id, clk);
 
-		if (clk != CLOCK_EXT && clk != CLOCK_INT)
+		if ((clk & ~(CLOCK_RX_INVERTED |
+			     CLOCK_TX_INVERTED)) != CLOCK_EXT &&
+		    (clk & ~(CLOCK_RX_INVERTED |
+			     CLOCK_TX_INVERTED)) != CLOCK_INT)
 			return -EINVAL;	/* No such clock setting */
 
 		if (new_line.loopback != 0 && new_line.loopback != 1)
 			return -EINVAL;
 
 		port->clock_type = clk; /* Update settings */
-		if (clk == CLOCK_INT)
+		if ((clk & CLOCK_TYPE_MASK) == CLOCK_INT)
 			find_best_clock(new_line.clock_rate, &port->clock_rate,
 					&port->clock_reg);
 		else {
