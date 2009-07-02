@@ -133,17 +133,19 @@ static int hss_set_clock(int port, unsigned int clock_type)
 {
 	int ctrl_int = port ? CONTROL_HSS1_CLK_INT : CONTROL_HSS0_CLK_INT;
 
-	switch (clock_type) {
-	case CLOCK_DEFAULT:
+	if (clock_type == CLOCK_DEFAULT)
+		clock_type = CLOCK_EXT;
+
+	switch (clock_type & CLOCK_TYPE_MASK) {
 	case CLOCK_EXT:
 		set_control(ctrl_int, 0);
 		output_control();
-		return CLOCK_EXT;
+		return clock_type;
 
 	case CLOCK_INT:
 		set_control(ctrl_int, 1);
 		output_control();
-		return CLOCK_INT;
+		return clock_type;
 
 	default:
 		return -EINVAL;
