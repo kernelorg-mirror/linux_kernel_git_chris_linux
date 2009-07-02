@@ -4,11 +4,14 @@
 
 #define GENERIC_HDLC_VERSION 4	/* For synchronization with sethdlc utility */
 
-#define CLOCK_DEFAULT   0	/* Default setting */
-#define CLOCK_EXT	1	/* External TX and RX clock - DTE */
-#define CLOCK_INT	2	/* Internal TX and RX clock - DCE */
-#define CLOCK_TXINT	3	/* Internal TX and external RX clock */
-#define CLOCK_TXFROMRX	4	/* TX clock derived from external RX clock */
+#define CLOCK_DEFAULT		0	/* Default setting */
+#define CLOCK_EXT		1	/* External TX and RX clock - DTE */
+#define CLOCK_INT		2	/* Internal TX and RX clock - DCE */
+#define CLOCK_TXINT		3	/* Internal TX and external RX clock */
+#define CLOCK_TXFROMRX		4	/* TX clock derived from external RX clock */
+#define CLOCK_TYPE_MASK		0xFF
+#define CLOCK_RX_INVERTED	0x40000000
+#define CLOCK_TX_INVERTED	0x80000000
 
 
 #define ENCODING_DEFAULT	0 /* Default setting */
@@ -34,13 +37,13 @@
 #define LMI_CCITT		3 /* ITU-T Annex A */
 #define LMI_CISCO		4 /* The "original" LMI, aka Gang of Four */
 
-typedef struct { 
+typedef struct {
 	unsigned int clock_rate; /* bits per second */
 	unsigned int clock_type; /* internal, external, TX-internal etc. */
 	unsigned short loopback;
 } sync_serial_settings;          /* V.35, V.24, X.21 */
 
-typedef struct { 
+typedef struct {
 	unsigned int clock_rate; /* bits per second */
 	unsigned int clock_type; /* internal, external, TX-internal etc. */
 	unsigned short loopback;
