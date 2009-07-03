@@ -69,8 +69,8 @@ int ath5k_hw_set_capabilities(struct ath5k_hw *ah)
 
 		if (AR5K_EEPROM_HDR_11A(ee_header)) {
 			/* 4920 */
-			ah->ah_capabilities.cap_range.range_5ghz_min = 5005;
-			ah->ah_capabilities.cap_range.range_5ghz_max = 6100;
+			ah->ah_capabilities.cap_range.range_5ghz_min = 5170;
+			ah->ah_capabilities.cap_range.range_5ghz_max = 5710;
 
 			/* Set supported modes */
 			__set_bit(AR5K_MODE_11A,
@@ -88,7 +88,7 @@ int ath5k_hw_set_capabilities(struct ath5k_hw *ah)
 				AR5K_EEPROM_HDR_11G(ee_header)) {
 			/* 2312 */
 			ah->ah_capabilities.cap_range.range_2ghz_min = 2412;
-			ah->ah_capabilities.cap_range.range_2ghz_max = 2732;
+			ah->ah_capabilities.cap_range.range_2ghz_max = 2482;
 
 			if (AR5K_EEPROM_HDR_11B(ee_header))
 				__set_bit(AR5K_MODE_11B,
