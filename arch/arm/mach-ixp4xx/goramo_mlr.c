@@ -11,12 +11,22 @@
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/serial_8250.h>
+#include <asm-generic/rtc.h>
 #include <asm/mach-types.h>
 #include <asm/system.h>
 #include <asm/mach/arch.h>
 #include <asm/mach/flash.h>
 #include <asm/mach/pci.h>
 
+#define DEBUG_PCI 0
+#define DEBUG_MSR 0
+#define DEBUG_IRQ 0
+
+#define SLOT_CS5536		0x01	/* IDSEL = AD31 */
+#define  DEV_CS5536_SB		0
+#define  DEV_CS5536_OHCI	1
+#define  DEV_CS5536_EHCI	2
+#define  DEV_CS5536_IDE		3
 #define SLOT_ETHA		0x0B	/* IDSEL = AD21 */
 #define SLOT_ETHB		0x0C	/* IDSEL = AD20 */
 #define SLOT_MPCI		0x0D	/* IDSEL = AD19 */
@@ -26,7 +36,7 @@
 #define GPIO_SCL		0
 #define GPIO_SDA		1
 #define GPIO_STR		2
-#define GPIO_IRQ_NEC		3
+#define GPIO_IRQ_NEC_CS5536	3
 #define GPIO_IRQ_ETHA		4
 #define GPIO_IRQ_ETHB		5
 #define GPIO_HSS0_DCD_N		6
@@ -54,13 +64,16 @@
 #define CFG_ETH0_ADDRESS	0x40 /* 6 bytes */
 #define CFG_ETH1_ADDRESS	0x46 /* 6 bytes */
 #define CFG_REV			0x4C /* u32 */
+#define  CFG_REV_MULTILINK	1
+#define  CFG_REV_MICRO		2
+#define  CFG_REV_MULTILINK2	3
 #define CFG_SDRAM_SIZE		0x50 /* u32 */
 #define CFG_SDRAM_CONF		0x54 /* u32 */
 #define CFG_SDRAM_MODE		0x58 /* u32 */
 #define CFG_SDRAM_REFRESH	0x5C /* u32 */
 
 #define CFG_HW_BITS		0x60 /* u32 */
-#define  CFG_HW_USB_PORTS	0x00000007 /* 0 = no NEC chip, 1-5 = ports # */
+#define  CFG_HW_USB_PORTS	0x00000007 /* 0 = no chip, 1-5 = ports # */
 #define  CFG_HW_HAS_PCI_SLOT	0x00000008
 #define  CFG_HW_HAS_ETH0	0x00000010
 #define  CFG_HW_HAS_ETH1	0x00000020
@@ -69,13 +82,43 @@
 #define  CFG_HW_HAS_UART0	0x00000100
 #define  CFG_HW_HAS_UART1	0x00000200
 #define  CFG_HW_HAS_EEPROM	0x00000400
+#define  CFG_HW_HAS_IDE		0x00000800
+#define  CFG_HW_HAS_RTC		0x00001000
 
 #define FLASH_CMD_READ_ARRAY	0xFF
 #define FLASH_CMD_READ_ID	0x90
 #define FLASH_SER_OFF		0x102 /* 0x81 in 16-bit mode */
 
+#define CS5536_ADDRESS		(1 << (32 - SLOT_CS5536))
+
+/* Use IRQ numbers normally used by GPIO lines which are used as outputs */
+#define IRQ_CS5536_IDE		IRQ_IXP4XX_GPIO0 /* CS5536 IRQ 14 - hardwired */
+#define IRQ_CS5536_USB		IRQ_IXP4XX_GPIO1 /* CS5536 IRQ 15 - IRQ mapper*/
+#define IRQ_CS5536_CPU_BASE	IRQ_CS5536_IDE
+#define IRQ_CS5536_SLAVE_PIC_BASE (14 - 8) /* CS5536 IRQs used: 14 and 15 */
+
+#define RTC_CENTURY		14 /* offset in CMOS RAM space */
+
 static u32 hw_bits = 0xFFFFFFFD;    /* assume all hardware present */;
 static u8 control_value;
+
+static inline int has_nec(void)
+{
+	return (system_rev == CFG_REV_MULTILINK) &&
+		(hw_bits & CFG_HW_USB_PORTS);
+}
+
+static inline int has_cs5536(void)
+{
+	return (system_rev == CFG_REV_MULTILINK2) &&
+		(hw_bits & (CFG_HW_USB_PORTS | CFG_HW_HAS_IDE |
+			    CFG_HW_HAS_RTC));
+}
+
+static inline int has_pci(void)
+{
+	return has_nec() || has_cs5536() || (hw_bits & CFG_HW_HAS_PCI_SLOT);
+}
 
 static void set_scl(u8 value)
 {
@@ -331,8 +374,26 @@ static struct platform_device device_hss_tab[] = {
 	}
 };
 
+/* CS5536 battery-backed RTC */
+static struct cmos_rtc_board_info rtc_plat = {
+	.rtc_century   = RTC_CENTURY,
+};
 
-static struct platform_device *device_tab[6] __initdata = {
+static struct resource rtc_resource = {
+	.start = 0x70,
+	.end   = 0x71,
+	.flags = IORESOURCE_IO
+};
+
+static struct platform_device device_rtc = {
+	.name              = "rtc_cmos",
+	.num_resources     = 1,
+	.resource          = &rtc_resource,
+	.dev.platform_data = &rtc_plat,
+};
+
+
+static struct platform_device *device_tab[7] __initdata = {
 	&device_flash,		/* index 0 */
 };
 
@@ -415,6 +476,9 @@ static void __init gmlr_init(void)
 	if (hw_bits & CFG_HW_HAS_EEPROM)
 		device_tab[devices++] = &device_i2c; /* max index 6 */
 
+	if (hw_bits & CFG_HW_HAS_RTC)
+		device_tab[devices++] = &device_rtc; /* max index 7 */
+
 	gpio_line_config(GPIO_SCL, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_SDA, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_STR, IXP4XX_GPIO_OUT);
@@ -428,10 +492,15 @@ static void __init gmlr_init(void)
 	set_control(CONTROL_HSS0_DTR_N, 1);
 	set_control(CONTROL_HSS1_DTR_N, 1);
 	set_control(CONTROL_EEPROM_WC_N, 1);
+	set_control(CONTROL_PCI_RESET_N, 0);
+	output_control();
+
+	msleep(1);
+
 	set_control(CONTROL_PCI_RESET_N, 1);
 	output_control();
 
-	msleep(1);	      /* Wait for PCI devices to initialize */
+	msleep(100);	      /* Wait for PCI devices to initialize */
 
 	flash_resource.start = IXP4XX_EXP_BUS_BASE(0);
 	flash_resource.end = IXP4XX_EXP_BUS_BASE(0) + ixp4xx_exp_bus_size - 1;
@@ -441,37 +510,636 @@ static void __init gmlr_init(void)
 
 
 #ifdef CONFIG_PCI
+union pci_config_space { /* little-endian */
+	struct {
+		__le16 vendor_id, device_id;
+		__le16 command, status;
+		u8 revision, class[3];
+		u8 cacheline, latency, header, bist;
+		__le32 bars[6];
+		__le32 cis_pointer;
+		__le16 sub_vendor_id, sub_device_id;
+		__le32 rom_bar;
+		u8 caps_pointer, res[7];
+		u8 irq, irq_pin, min_gnt, max_lat;
+		__le32 r40, r44, r48, r4c, r50;
+	} regs;
+	u8 regs8[0];
+	__le16 regs16[0];
+	__le32 regs32[0];
+};
+
+struct cs5536_pci_device {
+	union pci_config_space data;
+	union pci_config_space mask; /* 0 = read-only, 1 = read/write */
+};
+
+static struct cs5536_pci_device sb = {
+	.data.regs.vendor_id     = ~0,
+	.data.regs.device_id     = ~0,
+	.data.regs.class         = {0, 0x80, 6},
+	.data.regs.header        = 0x80,
+	/* mask - R/O */
+};
+
+static struct cs5536_pci_device ohci = {
+	.data.regs.vendor_id     = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.device_id     = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_OHC),
+	.data.regs.command       = cpu_to_le16(0x0006),
+	.data.regs.status        = cpu_to_le16(0x0230),
+	.data.regs.class         = {0x10, 0x03, 0x0C},
+	.data.regs.sub_vendor_id = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.sub_device_id = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_OHC),
+	.data.regs.caps_pointer  = 0x40,
+	.data.regs.irq_pin       = 1,
+	.data.regs.r40           = cpu_to_le32(0xC8020001), /* Capabilities */
+
+	.mask.regs.command       = ~0,
+	.mask.regs.cacheline     = ~0,
+	.mask.regs.latency       = ~0,
+	.mask.regs.bars[0]       = cpu_to_le32(0xFFFFF000), /* 4 KB (P2D desc)*/
+	.mask.regs.irq           = ~0,
+};
+
+static struct cs5536_pci_device ehci = {
+	.data.regs.vendor_id     = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.device_id     = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_EHC),
+	.data.regs.command       = cpu_to_le16(0x0006),
+	.data.regs.status        = cpu_to_le16(0x0230),
+	.data.regs.class         = {0x20, 0x03, 0x0C},
+	.data.regs.sub_vendor_id = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.sub_device_id = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_EHC),
+	.data.regs.caps_pointer  = 0x40,
+	.data.regs.irq_pin       = 1,
+	.data.regs.r40           = cpu_to_le32(0xC8020001), /* Capabilities */
+	/* mask */
+	.mask.regs.command       = ~0,
+	.mask.regs.cacheline     = ~0,
+	.mask.regs.latency       = ~0,
+	.mask.regs.bars[0]       = cpu_to_le32(0xFFFFF000), /* 4 KB (P2D desc)*/
+	.mask.regs.irq           = ~0,
+};
+
+static struct cs5536_pci_device ide = {
+	.data.regs.vendor_id     = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.device_id     = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_IDE),
+	.data.regs.command       = cpu_to_le16(0x0006),
+	.data.regs.status        = cpu_to_le16(0x0230),
+	.data.regs.class         = {0x85, 0x01, 0x01},
+	.data.regs.bars[4]       = cpu_to_le32(1), /* BM DMA registers */
+	.data.regs.sub_vendor_id = cpu_to_le16(PCI_VENDOR_ID_AMD),
+	.data.regs.sub_device_id = cpu_to_le16(PCI_DEVICE_ID_AMD_CS5536_IDE),
+	.data.regs.irq_pin       = 2,
+	/* mask */
+	.mask.regs.command       = ~0,
+	.mask.regs.cacheline     = ~0,
+	.mask.regs.latency       = ~0,
+	.mask.regs.bars[4]       = cpu_to_le32(0xFFFFFFF8), /* 8 bytes */
+	.mask.regs.irq           = ~0,
+	.mask.regs.r40           = ~0, /* IDE_CFG */
+	.mask.regs.r48           = ~0, /* IDE_DTC */
+	.mask.regs.r4c           = ~0, /* IDE_CAST */
+	.mask.regs.r50           = ~0, /* IDE_ETC */
+};
+
+/*
+ * Mask table, bits to mask for quantity of size 1, 2 or 4 bytes.
+ * 0 and 3 are not valid indexes...
+ */
+static const u32 bytemask[] = {
+	/*0*/	0,
+	/*1*/	0xff,
+	/*2*/	0xffff,
+	/*3*/	0,
+	/*4*/	0xffffffff,
+};
+
+static u8 cs5536_slave_irq_mask = 0xFF; /* IDE and USB only */
+
+static u32 byte_lane_enable_bits(u32 n, int size)
+{
+	if (size == 1)
+		return (0xF & ~BIT(n)) << 4;
+	if (size == 2)
+		return (0xF & ~(BIT(n) | BIT(n + 1))) << 4;
+	if (size == 4)
+		return 0;
+	return 0xFFFFFFFF;
+}
+
+static u32 ixp4xx_config_addr(u8 bus_num, u16 devfn, int where)
+{
+	if (!bus_num)		/* type 0 */
+		return BIT(32 - PCI_SLOT(devfn)) | ((PCI_FUNC(devfn)) << 8) |
+			(where & ~3);
+	else			/* type 1 */
+		return (bus_num << 16) | ((PCI_SLOT(devfn)) << 11) |
+			((PCI_FUNC(devfn)) << 8) | (where & ~3) | 1;
+}
+
+static u32 msr_id(u32 msr)
+{
+	return ((msr << 9) & 0xFF800000) | (msr & 0x3FFF);
+}
+
+static void read_msr(u32 msr, u32 *h, u32 *l)
+{
+	if (ixp4xx_pci_write(CS5536_ADDRESS + 0xF4, NP_CMD_CONFIGWRITE,
+			     msr_id(msr)))
+		goto error;
+	if (ixp4xx_pci_read(CS5536_ADDRESS + 0xF8, NP_CMD_CONFIGREAD, l))
+		goto error;
+	if (ixp4xx_pci_read(CS5536_ADDRESS + 0xFC, NP_CMD_CONFIGREAD, h))
+		goto error;
+#if DEBUG_MSR
+	printk(KERN_DEBUG "read_msr %08X: %08X %08X\n", msr, *h, *l);
+#endif
+	return;
+error:
+	printk(KERN_CRIT "read_msr(0x%08X) failed\n", msr);
+}
+
+
+static void write_msr(u32 msr, u32 h, u32 l)
+{
+	if (ixp4xx_pci_write(CS5536_ADDRESS + 0xF4, NP_CMD_CONFIGWRITE,
+			     msr_id(msr)))
+		goto error;
+	if (ixp4xx_pci_write(CS5536_ADDRESS + 0xF8, NP_CMD_CONFIGWRITE, l))
+		goto error;
+	if (ixp4xx_pci_write(CS5536_ADDRESS + 0xFC, NP_CMD_CONFIGWRITE, h))
+		goto error;
+#if DEBUG_MSR
+	printk(KERN_DEBUG "write_msr %08X: %08X %08X\n", msr, h, l);
+#endif
+	return;
+error:
+	printk(KERN_CRIT "write_msr(0x%08X, 0x%08X, 0x%08X) failed\n",
+	       msr, h, l);
+}
+
+
+static inline void setup_cs5536_gpio(u16 value, u16 address)
+{
+	outl(((~(u32)value) << 16) | value, address);
+}
+
+static void cs5536_irq_ack(unsigned int irq)
+{
+#if DEBUG_IRQ
+	printk(KERN_INFO "ACK %u GPIO %X\n",
+	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+#endif
+}
+
+static void cs5536_irq_mask(unsigned int irq)
+{
+#if DEBUG_IRQ
+	printk(KERN_INFO "MASK %u GPIO %X\n",
+	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+#endif
+	cs5536_slave_irq_mask |= 1 << (irq - IRQ_CS5536_CPU_BASE +
+				       IRQ_CS5536_SLAVE_PIC_BASE);
+	outb(cs5536_slave_irq_mask, 0xA1);
+#if DEBUG_IRQ
+	printk(KERN_INFO "        GPIO %X\n",
+	       !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+#endif
+}
+
+static void cs5536_irq_unmask(unsigned int irq)
+{
+#if DEBUG_IRQ
+	printk(KERN_INFO "UNMASK %u GPIO %X\n",
+	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+#endif
+	cs5536_slave_irq_mask &= ~(1 << (irq - IRQ_CS5536_CPU_BASE +
+					 IRQ_CS5536_SLAVE_PIC_BASE));
+	outb(cs5536_slave_irq_mask, 0xA1);
+#if DEBUG_IRQ
+	printk(KERN_INFO "        GPIO %X\n",
+	       !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+#endif
+}
+
+static void cs5536_irq_handler(unsigned int irq, struct irq_desc *desc)
+{
+	u32 h, l;
+
+#if DEBUG_IRQ
+	printk(KERN_INFO "HANDLER %u GPIO %X status %x\n",
+	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8), desc->status);
+#endif
+	desc->chip->ack(irq);
+	read_msr(0x51400027, &h, &l);
+	if (l & 0x40000000) {
+		struct irq_desc *d = irq_to_desc(IRQ_CS5536_USB);
+#if DEBUG_IRQ
+		printk(KERN_INFO "  status %X\n", d->status);
+		//BUG_ON (d->status & IRQ_INPROGRESS);
+#endif
+		d->handle_irq(IRQ_CS5536_USB, d);
+	}
+	if (l & 0x01000000) {
+		struct irq_desc *d = irq_to_desc(IRQ_CS5536_IDE);
+#if DEBUG_IRQ
+		printk(KERN_INFO "  status %X\n", d->status);
+#endif
+		d->handle_irq(IRQ_CS5536_IDE, d);
+	}
+}
+
 static void __init gmlr_pci_preinit(void)
 {
+	gpio_line_config(GPIO_IRQ_ETHA, IXP4XX_GPIO_IN);
+	gpio_line_config(GPIO_IRQ_ETHB, IXP4XX_GPIO_IN);
+	gpio_line_config(GPIO_IRQ_NEC_CS5536, IXP4XX_GPIO_IN);
+	gpio_line_config(GPIO_IRQ_MPCI, IXP4XX_GPIO_IN);
 	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHA), IRQ_TYPE_LEVEL_LOW);
 	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHB), IRQ_TYPE_LEVEL_LOW);
-	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC), IRQ_TYPE_LEVEL_LOW);
+	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536), IRQ_TYPE_LEVEL_LOW);
 	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_IRQ_MPCI), IRQ_TYPE_LEVEL_LOW);
 	ixp4xx_pci_preinit();
 }
 
+static struct irq_chip cs5536_irqchip = {
+	.name = "CS5536",
+	.ack = cs5536_irq_ack,
+	.mask = cs5536_irq_mask,
+	.unmask = cs5536_irq_unmask,
+};
+
 static void __init gmlr_pci_postinit(void)
 {
-	if ((hw_bits & CFG_HW_USB_PORTS) >= 2 &&
-	    (hw_bits & CFG_HW_USB_PORTS) < 5) {
+	if (has_nec() && (hw_bits & CFG_HW_USB_PORTS) < 5) {
 		/* need to adjust number of USB ports on NEC chip */
 		u32 value, addr = BIT(32 - SLOT_NEC) | 0xE0;
 		if (!ixp4xx_pci_read(addr, NP_CMD_CONFIGREAD, &value)) {
 			value &= ~7;
-			value |= (hw_bits & CFG_HW_USB_PORTS);
+			value |= hw_bits & CFG_HW_USB_PORTS;
 			ixp4xx_pci_write(addr, NP_CMD_CONFIGWRITE, value);
 		}
 	}
+
+	if (has_cs5536()) {
+		struct pci_dev *pci_dev;
+		u8 __iomem *ptr;
+		u32 h, l;
+
+/* GPIO */
+		/* FIXME 0x2000 */
+		write_msr(0x5140000C, 0xF001, 0x2000); /* GPIO at 0x2000 */
+		write_msr(0x510100E2, 0x80000002, 0x000fff00); /* 256 bytes */
+		/* GPIO1 = beeper (OUT AUX1)
+		   GPIO2 = IDE IRQ (IN AUX1)
+		   GPIO5 = IDE cable ID (IN) */
+		setup_cs5536_gpio(0x0002, 0x2004); /* OUT enable */
+		setup_cs5536_gpio(0x0002, 0x2010); /* OUT AUX1 */
+		setup_cs5536_gpio(0x0000, 0x2014); /* OUT AUX2 */
+		setup_cs5536_gpio(0xFFFB, 0x2018); /* pull-up enable */
+		setup_cs5536_gpio(0x0004, 0x201C); /* pull-down enable */
+		setup_cs5536_gpio(0x0024, 0x2020); /* IN enable */
+		setup_cs5536_gpio(0x0004, 0x2034); /* IN AUX1 */
+		setup_cs5536_gpio(0x0000, 0x20A0); /* IN enable */
+		setup_cs5536_gpio(0x0000, 0x20B4); /* IN AUX1 */
+
+/* USB */
+		read_msr(0x51200000, &h, &l);
+		ohci.data.regs.revision = ehci.data.regs.revision = l;
+
+		/* map and set USB option registers */
+		write_msr(0x5120000B, 2, PCIBIOS_MIN_MEM);
+		write_msr(0x51010020, 0x40000000 | PCIBIOS_MIN_MEM >> 24,
+			  (PCIBIOS_MIN_MEM << 8) | 0xFFFFF);
+		if (!(ptr = ioremap(PCIBIOS_MIN_MEM, 0x80)))
+			printk(KERN_CRIT "goramo-mlr: unable to access CS5536 "
+			       "PCI address space\n");
+		else {
+			/* assign USB port #4 to USB host controller */
+			writel((readl(ptr + 4) & ~3) | 2, ptr + 4);
+			iounmap(ptr);
+		}
+		/* reset maps */
+		write_msr(0x5120000B, 0, 0);
+		write_msr(0x51010020, 0x000000FF, 0xFFF00000);
+
+/* IDE */
+		read_msr(0x51300000, &h, &l);
+		ide.data.regs.revision = l;
+
+		read_msr(0x51400015, &h, &l);
+		write_msr(0x51400015, h, l | 1); /* IDE, not flash */
+
+		ide.data.regs.bars[0] = cpu_to_le32(0x1F1);
+		ide.data.regs.bars[1] = cpu_to_le32(0x3F7);
+		pci_dev = pci_get_bus_and_slot(0, PCI_DEVFN(SLOT_CS5536,
+							    DEV_CS5536_IDE));
+		if (pci_dev) {
+			pci_dev->resource[0].start = 0x1F0;
+			pci_dev->resource[0].end = 0x1F7;
+			pci_dev->resource[0].flags = IORESOURCE_IO |
+				IORESOURCE_PCI_FIXED;
+			pci_dev->resource[1].start = 0x3F6;
+			pci_dev->resource[1].end = 0x3F6;
+			pci_dev->resource[1].flags = IORESOURCE_IO |
+				IORESOURCE_PCI_FIXED;
+		}
+
+		l = 2;		/* channel enabled */
+		if (!(inl(0x2030) & 0x20))
+			l |= 0x30000; /* assume 80-wire cable */
+		write_msr(0x51300010, 0, l);
+		ide.data.regs32[0x10] = cpu_to_le32(l);
+		read_msr(0x51300012, &h, &l);
+		ide.data.regs32[0x12] = cpu_to_le32(l);
+		read_msr(0x51300013, &h, &l);
+		ide.data.regs32[0x13] = cpu_to_le32(l);
+		read_msr(0x51300014, &h, &l);
+		ide.data.regs32[0x14] = cpu_to_le32(l);
+
+/* RTC */
+		write_msr(0x51400057, 0, RTC_CENTURY);
+		outb(RTC_REG_D, 0x70);
+		if (!(inb(0x71) & 0x80))
+			printk(KERN_ERR "RTC: battery fault recorded\n");
+		/* Make sure we do 24 hrs BCD */
+		outb(RTC_REG_B, 0x70);
+		l = inb(0x71);
+		if ((l & (RTC_DM_BINARY | RTC_24H)) != RTC_24H)
+			outb((l & ~RTC_DM_BINARY) | RTC_24H, 0x71);
+
+/* Interrupts */
+		/* initialize CS5536 dual 8259A IRQ controller */
+		outb(0xFF, 0x21); /* mask all IRQs */
+		outb(0xFF, 0xA1);
+		outb(0x19, 0x20); /* ICW1 (master) level-triggered */
+		outb(0x00, 0x21); /* ICW2 */
+		outb(0x04, 0x21); /* ICW3 */
+		outb(0x01, 0x21); /* ICW4 */
+		outb(0x19, 0xA0); /* ICW1 (slave) level-triggered */
+		outb(0x00, 0xA1); /* ICW2 */
+		outb(0x02, 0xA1); /* ICW3 */
+		outb(0x01, 0xA1); /* ICW4 */
+
+		outb(0xFB, 0x21); /* mask all but cascade IRQ2 */
+		outb(0xFF, 0xA1);
+
+		write_msr(0x51400020, 0, 0xF00); /* USB uses IRQ15 (Y15) */
+		write_msr(0x51000010, 0x44000030, 0x00000013); /* CIS mode C */
+
+		set_irq_chip(IRQ_CS5536_IDE, &cs5536_irqchip);
+		set_irq_handler(IRQ_CS5536_IDE, handle_level_irq);
+		set_irq_flags(IRQ_CS5536_IDE, IRQF_VALID);
+		irq_to_desc(IRQ_CS5536_IDE)->status |= IRQ_LEVEL;
+
+		set_irq_chip(IRQ_CS5536_USB, &cs5536_irqchip);
+		set_irq_handler(IRQ_CS5536_USB, handle_level_irq);
+		set_irq_flags(IRQ_CS5536_USB, IRQF_VALID);
+		irq_to_desc(IRQ_CS5536_USB)->status |= IRQ_LEVEL;
+
+		irq_to_desc(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536))->status |=
+			IRQ_LEVEL;
+		set_irq_chained_handler(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536),
+					cs5536_irq_handler);
+	}
+}
+
+static int __init gmlr_pci_setup(int nr, struct pci_sys_data *sys)
+{
+	int res = ixp4xx_setup(nr, sys);
+	if (res) {
+		u32 v;
+		ixp4xx_pci_write(0, NP_CMD_IOWRITE, CS5536_ADDRESS); /* IDSEL */
+		ixp4xx_pci_read(CS5536_ADDRESS, NP_CMD_CONFIGREAD, &v);
+		sb.data.regs32[0] = cpu_to_le32(v); /* vendor and device ID */
+		ixp4xx_pci_read(CS5536_ADDRESS + 8, NP_CMD_CONFIGREAD, &v);
+		sb.data.regs.revision = v;
+	}
+	return res;
 }
 
 static int __init gmlr_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
-	switch(slot) {
-	case SLOT_ETHA:	return IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHA);
-	case SLOT_ETHB:	return IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHB);
-	case SLOT_NEC:	return IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC);
-	default:	return IXP4XX_GPIO_IRQ(GPIO_IRQ_MPCI);
+	switch (slot) {
+	case SLOT_CS5536:
+		break;
+	case SLOT_ETHA:
+		return IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHA);
+	case SLOT_ETHB:
+		return IXP4XX_GPIO_IRQ(GPIO_IRQ_ETHB);
+	case SLOT_NEC:
+		return IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536);
+	default:
+		return IXP4XX_GPIO_IRQ(GPIO_IRQ_MPCI);
 	}
+
+	switch (pin) {
+	case 1:
+		return IRQ_CS5536_USB;
+	case 2:
+		return IRQ_CS5536_IDE;
+	default:
+		return -1;
+	}
+}
+
+static struct cs5536_pci_device* cs5536_get_dev(unsigned int devfn)
+{
+	if (PCI_FUNC(devfn) == DEV_CS5536_SB)
+		return &sb;
+	else if (PCI_FUNC(devfn) == DEV_CS5536_OHCI &&
+		 (hw_bits & CFG_HW_USB_PORTS))
+		return &ohci;
+	else if (PCI_FUNC(devfn) == DEV_CS5536_EHCI &&
+		 (hw_bits & CFG_HW_USB_PORTS))
+		return &ehci;
+	else if (PCI_FUNC(devfn) == DEV_CS5536_IDE &&
+		 (hw_bits & CFG_HW_HAS_IDE))
+		return &ide;
+	else
+		return NULL;
+}
+
+static int cs5536_pci_read(unsigned int devfn, int where, int len,
+			   uint32_t *value)
+{
+	struct cs5536_pci_device *device;
+
+	if (!(device = cs5536_get_dev(devfn)))
+		return PCIBIOS_DEVICE_NOT_FOUND;
+
+	if (where >= sizeof(device->data)) {
+		*value = 0;
+		return 0;	/* nothing there */
+	}
+
+	switch (len) {
+	case 1:
+		*value = device->data.regs8[where];
+		break;
+	case 2:
+		*value = le16_to_cpu(device->data.regs16[where >> 1]);
+		break;
+	case 4:
+		*value = le32_to_cpu(device->data.regs32[where >> 2]);
+		break;
+	default:
+		BUG();
+	}
+
+#if DEBUG_PCI
+	printk(KERN_INFO "cs5536_pci_read from %X size %X dev 0:%X:%X -> %X\n",
+	       where, len, PCI_SLOT(devfn), PCI_FUNC(devfn), *value);
+#endif
+	return 0;
+}
+
+static int cs5536_pci_write(unsigned int devfn, int where, int len,
+			    uint32_t value)
+{
+	struct cs5536_pci_device *device;
+	__le32 mask;
+
+	if (!(device = cs5536_get_dev(devfn)))
+		return PCIBIOS_DEVICE_NOT_FOUND;
+#if DEBUG_PCI
+	printk(KERN_INFO "cs5536_pci_write to %X size %X value %X dev 0:"
+	       "%X:%X\n", where, len, value, PCI_SLOT(devfn), PCI_FUNC(devfn));
+#endif
+
+	if (where >= sizeof(device->data))
+		return 0;	/* nothing there */
+
+	switch (len) {
+	case 1:
+		mask = device->mask.regs8[where];
+		value &= mask;
+
+		device->data.regs8[where] &= ~mask;
+		device->data.regs8[where] |= value;
+		break;
+	case 2:
+		where &= ~1;
+		mask = device->mask.regs16[where >> 1]; /* little-endian */
+		value &= le16_to_cpu(mask);
+
+		device->data.regs16[where >> 1] &= ~mask;
+		device->data.regs16[where >> 1] |= cpu_to_le16(value);
+		break;
+	case 4:
+		where &= ~3;
+		mask = device->mask.regs32[where >> 2]; /* little-endian */
+		value &= le32_to_cpu(mask);
+
+		device->data.regs32[where >> 2] &= ~mask;
+		device->data.regs32[where >> 2] |= cpu_to_le32(value);
+		break;
+	default:
+		BUG();
+	}
+
+	if (len == 4 && where == 0x10) { /* write to BAR0 */
+		switch (PCI_FUNC(devfn)) {
+		case DEV_CS5536_OHCI:
+			/* USB OHCI base address MSR */
+			write_msr(0x51200008, 6, value);
+			/* P2D descriptor for USB OHCI */
+			write_msr(0x51010020, 0x40000000 | value >> 24,
+				  (value << 8) | 0xFFFFF);
+			break;
+
+		case DEV_CS5536_EHCI:
+			/* USB EHCI base address MSR */
+			write_msr(0x51200009, 0x2006, value);
+			/* P2D descriptor for USB EHCI */
+			write_msr(0x51010021, 0x40000000 | value >> 24,
+				  (value << 8) | 0xFFFFF);
+			break;
+		}
+		return 0;
+	}
+
+	if (PCI_FUNC(devfn) == DEV_CS5536_IDE && len == 4)
+		switch (where) {
+		case 0x20: /* BAR4 */
+			/* Bus mastering IDE base address MSR - 20-bit */
+			write_msr(0x51300008, 0, value);
+			/* IOD descriptor for IDE */
+			write_msr(0x510100E1, 0x60000000 | value >> 12,
+				  (value << 20) | 0xFFFF8);
+			break;
+		case 0x40:
+			write_msr(0x51300010, 0, value);
+			break;
+		case 0x48:
+			write_msr(0x51300012, 0, value);
+			break;
+		case 0x4C:
+			write_msr(0x51300013, 0, value);
+			break;
+		case 0x50:
+			write_msr(0x51300014, 0, value);
+			break;
+		}
+
+	return 0;
+}
+
+static int gmlr_pci_read_config(struct pci_bus *bus, unsigned int devfn,
+				int where, int size, u32 *value)
+{
+	u32 n, byte_enables, addr, data;
+	u8 bus_num = bus->number;
+
+	if (bus_num == 0 && PCI_SLOT(devfn) == SLOT_CS5536 &&
+	    (PCI_FUNC(devfn) != DEV_CS5536_SB || where < 0x10))
+		return cs5536_pci_read(devfn, where, size, value);
+
+	*value = 0xFFFFFFFF;
+	n = where % 4;
+	byte_enables = byte_lane_enable_bits(n, size);
+	if (byte_enables == 0xffffffff)
+		return PCIBIOS_BAD_REGISTER_NUMBER;
+
+	addr = ixp4xx_config_addr(bus_num, devfn, where);
+	if (ixp4xx_pci_read(addr, byte_enables | NP_CMD_CONFIGREAD, &data))
+		return PCIBIOS_DEVICE_NOT_FOUND;
+
+	*value = (data >> (8 * n)) & bytemask[size];
+	return PCIBIOS_SUCCESSFUL;
+}
+
+static int gmlr_pci_write_config(struct pci_bus *bus, unsigned int devfn,
+				 int where, int size, u32 value)
+{
+	u32 n, byte_enables, addr, data;
+	u8 bus_num = bus->number;
+
+	if (bus_num == 0 && PCI_SLOT(devfn) == SLOT_CS5536 &&
+	    (PCI_FUNC(devfn) != DEV_CS5536_SB || where < 0x10))
+		return cs5536_pci_write(devfn, where, size, value);
+
+	n = where % 4;
+	byte_enables = byte_lane_enable_bits(n, size);
+	if (byte_enables == 0xFFFFFFFF)
+		return PCIBIOS_BAD_REGISTER_NUMBER;
+
+	addr = ixp4xx_config_addr(bus_num, devfn, where);
+	data = value << (8 * n);
+	if (ixp4xx_pci_write(addr, byte_enables | NP_CMD_CONFIGWRITE, data))
+		return PCIBIOS_DEVICE_NOT_FOUND;
+
+	return PCIBIOS_SUCCESSFUL;
+}
+
+struct pci_ops gmlr_ops = {
+	.read =  gmlr_pci_read_config,
+	.write = gmlr_pci_write_config,
+};
+
+struct pci_bus *gmlr_scan_bus(int nr, struct pci_sys_data *sys)
+{
+	return pci_scan_bus(sys->busnr, &gmlr_ops, sys);
 }
 
 static struct hw_pci gmlr_hw_pci __initdata = {
@@ -479,15 +1147,14 @@ static struct hw_pci gmlr_hw_pci __initdata = {
 	.preinit	= gmlr_pci_preinit,
 	.postinit	= gmlr_pci_postinit,
 	.swizzle	= pci_std_swizzle,
-	.setup		= ixp4xx_setup,
-	.scan		= ixp4xx_scan_bus,
+	.setup		= gmlr_pci_setup,
+	.scan		= gmlr_scan_bus,
 	.map_irq	= gmlr_map_irq,
 };
 
 static int __init gmlr_pci_init(void)
 {
-	if (machine_is_goramo_mlr() &&
-	    (hw_bits & (CFG_HW_USB_PORTS | CFG_HW_HAS_PCI_SLOT)))
+	if (machine_is_goramo_mlr() && has_pci())
 		pci_common_init(&gmlr_hw_pci);
 	return 0;
 }
