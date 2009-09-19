@@ -150,7 +150,7 @@ int skb_restore_cb(struct sk_buff *skb)
 }
 EXPORT_SYMBOL(skb_restore_cb);
 
-static void skb_copy_stored_cb(struct sk_buff *new, struct sk_buff *old)
+static void skb_copy_stored_cb(struct sk_buff *new, const struct sk_buff *old)
 {
 	struct skb_cb_table *next;
 
@@ -479,7 +479,7 @@ static void skb_release_head_state(struct sk_buff *skb)
 	/* This should not happen. When it does, avoid memleak by restoring
 	the chain of cb-backups. */
 	while(skb->cb_next != NULL) {
-		printk(KERN_WARNING "kfree_skb: skb->cb_next: %08x\n",
+		printk(KERN_WARNING "kfree_skb: skb->cb_next: %p\n",
 			skb->cb_next);
 		skb_restore_cb(skb);
 	}
