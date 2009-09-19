@@ -2045,7 +2045,7 @@ static int hss_chan_open(struct inode *inode, struct file *file)
 	hss_stop_chan(port);
 	chan_dev->open_count++;
 	port->chan_open_count++;
-	chan_dev->excl_open = !!file->f_flags & O_EXCL;
+	chan_dev->excl_open = !!(file->f_flags & O_EXCL);
 
 	hss_config(port);
 	hss_start_chan(port);
