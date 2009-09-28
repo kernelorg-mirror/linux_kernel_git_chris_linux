@@ -1643,7 +1643,7 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			return -EINVAL;
 
 		port->clock_type = clk; /* Update settings */
-		if (clk == CLOCK_INT)
+		if ((clk & CLOCK_TYPE_MASK) == CLOCK_INT)
 			find_best_clock(new_line.clock_rate, &port->clock_rate,
 					&port->clock_reg);
 		else {
@@ -2437,7 +2437,8 @@ static ssize_t show_clock_type(struct device *dev,
 {
 	struct port *port = dev_get_drvdata(dev);
 
-	strcpy(buf, port->clock_type == CLOCK_INT ? "int\n" : "ext\n");
+	strcpy(buf, (port->clock_type & CLOCK_TYPE_MASK) == CLOCK_INT ?
+	       "int\n" : "ext\n");
 	return 5;
 }
 
