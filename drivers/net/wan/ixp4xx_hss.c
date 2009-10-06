@@ -621,7 +621,7 @@ static void hss_config(struct port *port)
 	msg.hss_port = port->id;
 	msg.index = HSS_CONFIG_TX_PCR;
 	msg.data32 = PCR_DCLK_EDGE_RISING | PCR_FRM_SYNC_OUTPUT_RISING |
-		PCR_MSB_ENDIAN | PCR_TX_DATA_ENABLE;
+		PCR_FRM_PULSE_DISABLED | PCR_MSB_ENDIAN | PCR_TX_DATA_ENABLE;
 	if (port->frame_size % 8 == 0)
 		msg.data32 |= PCR_SOF_NO_FBIT;
 	if ((port->clock_type & CLOCK_TYPE_MASK) == CLOCK_INT)
