@@ -607,7 +607,7 @@ static void hss_config_set_lut(struct port *port)
 		for (ch = 0; ch < chan_count; ch++)
 			list[ch] = phys + ch * CHAN_TX_FRAMES;
 	}
-	dma_sync_single(port->dev, port->chan_tx_buf_phys,
+	dma_sync_single_for_device(port->dev, port->chan_tx_buf_phys,
 			chan_tx_buf_len(port) + chan_tx_lists_len(port),
 			DMA_TO_DEVICE);
 }
@@ -1599,7 +1599,7 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (!port->chan_buf)
 			return 0;
 
-		dma_sync_single(&dev->dev, port->chan_rx_buf_phys,
+		dma_sync_single_for_cpu(&dev->dev, port->chan_rx_buf_phys,
 				chan_rx_buf_len(port), DMA_FROM_DEVICE);
 		printk(KERN_DEBUG "RX:\n");
 		for (i = 0; i < chan_rx_buf_len(port); i++) {
@@ -1684,8 +1684,8 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 	enum alignment aligned;
 
 	port->just_set_offset = 0;
-	dma_sync_single(port->dev, port->chan_rx_buf_phys, CHAN_RX_FRAMES,
-			DMA_FROM_DEVICE);
+	dma_sync_single_for_cpu(port->dev, port->chan_rx_buf_phys,
+				CHAN_RX_FRAMES, DMA_FROM_DEVICE);
 
 	/* check if aligned first */
 	for (frame = 0; frame < CHAN_RX_TRIGGER &&
@@ -2115,8 +2115,8 @@ static ssize_t hss_chan_read(struct file *file, char __user *buf, size_t count,
 		continue;
 	}
 
-	dma_sync_single(port->dev, port->chan_rx_buf_phys,
-			chan_rx_buf_len(port), DMA_FROM_DEVICE);
+	dma_sync_single_for_cpu(port->dev, port->chan_rx_buf_phys,
+				chan_rx_buf_len(port), DMA_FROM_DEVICE);
 
 #if 0
 	if (loops > 1)
@@ -2211,8 +2211,8 @@ static ssize_t hss_chan_write(struct file *file, const char __user *buf,
 		res++;
 	}
 out_sync:
-	dma_sync_single(port->dev, port->chan_tx_buf_phys,
-			chan_tx_buf_len(port), DMA_TO_DEVICE);
+	dma_sync_single_for_device(port->dev, port->chan_tx_buf_phys,
+				   chan_tx_buf_len(port), DMA_TO_DEVICE);
 out:
 #if 0
 	printk(KERN_DEBUG "EXIT  TX_first %u tx_count %u res %i\n",
