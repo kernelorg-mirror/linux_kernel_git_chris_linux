@@ -476,7 +476,7 @@ static void ath5k_hw_set_sleep_clock(struct ath5k_hw *ah, bool enable)
 		(ah->ah_mac_version == (AR5K_SREV_AR2417 >> 4))) {
 			ath5k_hw_reg_write(ah, 0x26, AR5K_PHY_SLMT);
 			ath5k_hw_reg_write(ah, 0x0d, AR5K_PHY_SCAL);
-			ath5k_hw_reg_write(ah, 0x07, AR5K_PHY_SCLOCK);
+			ath5k_hw_reg_write(ah, 0x0C, AR5K_PHY_SCLOCK);
 			ath5k_hw_reg_write(ah, 0x3f, AR5K_PHY_SDELAY);
 			AR5K_REG_WRITE_BITS(ah, AR5K_PCICFG,
 				AR5K_PCICFG_SLEEP_CLOCK_RATE, 0x02);
@@ -490,8 +490,10 @@ static void ath5k_hw_set_sleep_clock(struct ath5k_hw *ah, bool enable)
 		}
 
 		/* Enable sleep clock operation */
+#if 0
 		AR5K_REG_ENABLE_BITS(ah, AR5K_PCICFG,
 				AR5K_PCICFG_SLEEP_CLOCK_EN);
+#endif
 
 	} else {
 
