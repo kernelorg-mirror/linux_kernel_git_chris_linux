@@ -257,10 +257,10 @@ static int ixp4xx_flash_probe(struct platform_device *dev)
 		if(err)
 			printk(KERN_ERR "Could not parse partitions\n");
 	}
-
 	if (err)
 		goto Error;
 
+	add_mtd_device(info->mtd);
 	return 0;
 
 Error:
