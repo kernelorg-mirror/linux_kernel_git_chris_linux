@@ -767,7 +767,22 @@ static int sil_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc)
 		return rc;
 
+#ifdef CONFIG_ARCH_IXP4XX
+	/* IXP4xx CPUs can't perform 8 and 16-bit MMIO reads,
+	   use normal IO from/to regions 0-5 instead.
+	   region 0: channel 0 (and 2) task file regs
+	   region 1: channel 0 (and 2) auxiliary status
+	   region 2: channel 1 (and 3) task file regs
+	   region 3: channel 1 (and 3) auxiliary status
+	   region 4: bus master DMA command and status for all channels
+	   region 5: the normal MMIO
+
+	   Channels 2 and 3 are present only on SIL3114, device selection
+	   is done with ATA_DEV1 bit in ATA_REG_DEVICE. FIXME - untested */
+	rc = pcim_iomap_regions(pdev, 0x3F, DRV_NAME);
+#else
 	rc = pcim_iomap_regions(pdev, 1 << SIL_MMIO_BAR, DRV_NAME);
+#endif
 	if (rc == -EBUSY)
 		pcim_pin_device(pdev);
 	if (rc)
@@ -787,10 +802,16 @@ static int sil_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		struct ata_port *ap = host->ports[i];
 		struct ata_ioports *ioaddr = &ap->ioaddr;
 
+#ifdef CONFIG_ARCH_IXP4XX
+		ioaddr->cmd_addr = host->iomap[(i % 2) * 2];
+		ioaddr->altstatus_addr = host->iomap[1 + (i % 2) * 2] + 2;
+		ioaddr->bmdma_addr = host->iomap[4] + sil_port[i % 2].bmdma;
+#else
 		ioaddr->cmd_addr = mmio_base + sil_port[i].tf;
-		ioaddr->altstatus_addr =
-		ioaddr->ctl_addr = mmio_base + sil_port[i].ctl;
+		ioaddr->altstatus_addr = mmio_base + sil_port[i].ctl;
 		ioaddr->bmdma_addr = mmio_base + sil_port[i].bmdma;
+#endif
+		ioaddr->ctl_addr = mmio_base + sil_port[i].ctl;
 		ioaddr->scr_addr = mmio_base + sil_port[i].scr;
 		ata_sff_std_ports(ioaddr);
 
