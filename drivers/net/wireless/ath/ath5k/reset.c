@@ -564,9 +564,10 @@ static void ath5k_hw_set_sleep_clock(struct ath5k_hw *ah, bool enable)
 		}
 
 		/* Enable sleep clock operation */
+#if 0
 		AR5K_REG_ENABLE_BITS(ah, AR5K_PCICFG,
 				AR5K_PCICFG_SLEEP_CLOCK_EN);
-
+#endif
 	} else {
 
 		/* Disable sleep clock operation and

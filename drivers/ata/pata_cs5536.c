@@ -37,7 +37,9 @@
 #include <linux/delay.h>
 #include <linux/libata.h>
 #include <scsi/scsi_host.h>
+#ifdef CONFIG_X86
 #include <asm/msr.h>
+#endif
 
 #define DRV_NAME	"pata_cs5536"
 #define DRV_VERSION	"0.0.7"
@@ -75,11 +77,13 @@ enum {
 	IDE_ETC_NODMA		= 0x03,
 };
 
+#ifdef CONFIG_X86
 static int use_msr;
 
 static const u32 msr_reg[4] = {
 	MSR_IDE_CFG, MSR_IDE_DTC, MSR_IDE_CAST, MSR_IDE_ETC,
 };
+#endif
 
 static const u8 pci_reg[4] = {
 	PCI_IDE_CFG, PCI_IDE_DTC, PCI_IDE_CAST, PCI_IDE_ETC,
@@ -87,22 +91,26 @@ static const u8 pci_reg[4] = {
 
 static inline int cs5536_read(struct pci_dev *pdev, int reg, u32 *val)
 {
+#ifdef CONFIG_X86
 	if (unlikely(use_msr)) {
 		u32 dummy;
 
 		rdmsr(msr_reg[reg], *val, dummy);
 		return 0;
 	}
+#endif
 
 	return pci_read_config_dword(pdev, pci_reg[reg], val);
 }
 
 static inline int cs5536_write(struct pci_dev *pdev, int reg, int val)
 {
+#ifdef CONFIG_X86
 	if (unlikely(use_msr)) {
 		wrmsr(msr_reg[reg], val, 0);
 		return 0;
 	}
+#endif
 
 	return pci_write_config_dword(pdev, pci_reg[reg], val);
 }
@@ -224,7 +232,7 @@ static struct scsi_host_template cs5536_sht = {
 };
 
 static struct ata_port_operations cs5536_port_ops = {
-	.inherits		= &ata_bmdma_port_ops,
+	.inherits		= &ata_bmdma32_port_ops,
 	.cable_detect		= cs5536_cable_detect,
 	.set_piomode		= cs5536_set_piomode,
 	.set_dmamode		= cs5536_set_dmamode,
@@ -250,8 +258,10 @@ static int cs5536_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 	const struct ata_port_info *ppi[] = { &info, &ata_dummy_port_info };
 	u32 cfg;
 
+#ifdef CONFIG_X86
 	if (use_msr)
 		printk(KERN_ERR DRV_NAME ": Using MSR regs instead of PCI\n");
+#endif
 
 	cs5536_read(dev, CFG, &cfg);
 
@@ -294,8 +304,10 @@ MODULE_DESCRIPTION("low-level driver for the CS5536 IDE controller");
 MODULE_LICENSE("GPL");
 MODULE_DEVICE_TABLE(pci, cs5536);
 MODULE_VERSION(DRV_VERSION);
+#ifdef CONFIG_X86
 module_param_named(msr, use_msr, int, 0644);
 MODULE_PARM_DESC(msr, "Force using MSR to configure IDE function (Default: 0)");
+#endif
 
 module_init(cs5536_init);
 module_exit(cs5536_exit);
