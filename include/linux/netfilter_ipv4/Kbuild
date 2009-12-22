@@ -34,6 +34,7 @@ header-y += ipt_owner.h
 header-y += ipt_physdev.h
 header-y += ipt_pkttype.h
 header-y += ipt_policy.h
+header-y += ipt_ipp2p.h
 header-y += ipt_realm.h
 header-y += ipt_recent.h
 header-y += ipt_sctp.h
