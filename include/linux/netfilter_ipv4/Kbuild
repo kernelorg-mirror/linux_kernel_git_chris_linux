@@ -3,6 +3,7 @@ header-y += ipt_CLUSTERIP.h
 header-y += ipt_CONNMARK.h
 header-y += ipt_DSCP.h
 header-y += ipt_ECN.h
+header-y += ipt_IMQ.h
 header-y += ipt_LOG.h
 header-y += ipt_MARK.h
 header-y += ipt_NFQUEUE.h
