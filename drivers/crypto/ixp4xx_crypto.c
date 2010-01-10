@@ -65,7 +65,7 @@
 
 #define MOD_DES     0x0000
 #define MOD_TDEA2   0x0100
-#define MOD_3DES   0x0200
+#define MOD_3DES    0x0200
 #define MOD_AES     0x0800
 #define MOD_AES128  (0x0800 | KEYLEN_128)
 #define MOD_AES192  (0x0900 | KEYLEN_192)
@@ -138,7 +138,7 @@ struct crypt_ctl {
 	u32 aadAddr;		/* Additional Auth Data Addr for CCM mode */
 	u32 crypto_ctx;		/* NPE Crypto Param structure address */
 
-	/* Used by Host: 4*4 bytes*/
+	/* Used only by host: 4 * 4 bytes */
 	unsigned ctl_flags;
 	union {
 		struct ablkcipher_request *ablk_req;
@@ -209,10 +209,10 @@ static const struct ix_hash_algo hash_alg_sha1 = {
 };
 
 static struct npe *npe_c;
-static struct dma_pool *buffer_pool = NULL;
-static struct dma_pool *ctx_pool = NULL;
+static struct dma_pool *buffer_pool;
+static struct dma_pool *ctx_pool;
 
-static struct crypt_ctl *crypt_virt = NULL;
+static struct crypt_ctl *crypt_virt;
 static dma_addr_t crypt_phys;
 
 static int support_aes = 1;
@@ -247,12 +247,12 @@ static inline struct crypt_ctl *crypt_phys2virt(dma_addr_t phys)
 
 static inline u32 cipher_cfg_enc(struct crypto_tfm *tfm)
 {
-	return container_of(tfm->__crt_alg, struct ixp_alg,crypto)->cfg_enc;
+	return container_of(tfm->__crt_alg, struct ixp_alg, crypto)->cfg_enc;
 }
 
 static inline u32 cipher_cfg_dec(struct crypto_tfm *tfm)
 {
-	return container_of(tfm->__crt_alg, struct ixp_alg,crypto)->cfg_dec;
+	return container_of(tfm->__crt_alg, struct ixp_alg, crypto)->cfg_dec;
 }
 
 static inline const struct ix_hash_algo *ix_hash(struct crypto_tfm *tfm)
@@ -276,7 +276,7 @@ static spinlock_t desc_lock;
 static struct crypt_ctl *get_crypt_desc(void)
 {
 	int i;
-	static int idx = 0;
+	static int idx;
 	unsigned long flags;
 	struct crypt_ctl *desc = NULL;
 
@@ -319,13 +319,13 @@ static struct crypt_ctl *get_crypt_desc_emerg(void)
 		if (++idx >= NPE_QLEN_TOTAL)
 			idx = NPE_QLEN;
 		crypt_virt[i].ctl_flags = CTL_FLAG_USED;
-		desc = crypt_virt +i;
+		desc = crypt_virt + i;
 	}
 	spin_unlock_irqrestore(&emerg_lock, flags);
 	return desc;
 }
 
-static void free_buf_chain(struct device *dev, struct buffer_desc *buf,u32 phys)
+static void free_buf_chain(struct device *dev, struct buffer_desc *buf, u32 phys)
 {
 	while (buf) {
 		struct buffer_desc *buf1;
@@ -350,10 +350,9 @@ static void finish_scattered_hmac(struct crypt_ctl *crypt)
 	int authsize = crypto_aead_authsize(tfm);
 	int decryptlen = req->cryptlen - authsize;
 
-	if (req_ctx->encrypt) {
+	if (req_ctx->encrypt)
 		scatterwalk_map_and_copy(req_ctx->hmac_virt,
 			req->src, decryptlen, authsize, 1);
-	}
 	dma_pool_free(buffer_pool, req_ctx->hmac_virt, crypt->icv_rev_aes);
 }
 
@@ -373,9 +372,8 @@ static void one_packet(dma_addr_t phys)
 		struct aead_ctx *req_ctx = aead_request_ctx(req);
 
 		free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
-		if (req_ctx->hmac_virt) {
+		if (req_ctx->hmac_virt)
 			finish_scattered_hmac(crypt);
-		}
 		req->base.complete(&req->base, failed);
 		break;
 	}
@@ -383,9 +381,8 @@ static void one_packet(dma_addr_t phys)
 		struct ablkcipher_request *req = crypt->data.ablk_req;
 		struct ablk_ctx *req_ctx = ablkcipher_request_ctx(req);
 
-		if (req_ctx->dst) {
+		if (req_ctx->dst)
 			free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
-		}
 		free_buf_chain(dev, req_ctx->src, crypt->src_buf);
 		req->base.complete(&req->base, failed);
 		break;
@@ -419,7 +416,7 @@ static void crypto_done_action(unsigned long arg)
 {
 	int i;
 
-	for(i=0; i<4; i++) {
+	for (i = 0; i < 4; i++) {
 		dma_addr_t phys = qmgr_get_entry(RECV_QID);
 		if (!phys)
 			return;
@@ -444,9 +441,8 @@ static int init_ixp_crypto(void)
 
 	if (!npe_running(npe_c)) {
 		ret = npe_load_firmware(npe_c, npe_name(npe_c), dev);
-		if (ret) {
+		if (ret)
 			return ret;
-		}
 		if (npe_recv_message(npe_c, msg, "STATUS_MSG"))
 			goto npe_error;
 	} else {
@@ -479,14 +475,12 @@ static int init_ixp_crypto(void)
 	buffer_pool = dma_pool_create("buffer", dev,
 			sizeof(struct buffer_desc), 32, 0);
 	ret = -ENOMEM;
-	if (!buffer_pool) {
+	if (!buffer_pool)
 		goto err;
-	}
 	ctx_pool = dma_pool_create("context", dev,
 			NPE_CTX_LEN, 16, 0);
-	if (!ctx_pool) {
+	if (!ctx_pool)
 		goto err;
-	}
 	ret = qmgr_request_queue(SEND_QID, NPE_QLEN_TOTAL, 0, 0,
 				 "ixp_crypto:out", NULL);
 	if (ret)
@@ -528,11 +522,10 @@ static void release_ixp_crypto(void)
 
 	npe_release(npe_c);
 
-	if (crypt_virt) {
+	if (crypt_virt)
 		dma_free_coherent(dev,
-			NPE_QLEN_TOTAL * sizeof( struct crypt_ctl),
+			NPE_QLEN_TOTAL * sizeof(struct crypt_ctl),
 			crypt_virt, crypt_phys);
-	}
 	return;
 }
 
@@ -546,9 +539,8 @@ static void reset_sa_dir(struct ix_sa_dir *dir)
 static int init_sa_dir(struct ix_sa_dir *dir)
 {
 	dir->npe_ctx = dma_pool_alloc(ctx_pool, GFP_KERNEL, &dir->npe_ctx_phys);
-	if (!dir->npe_ctx) {
+	if (!dir->npe_ctx)
 		return -ENOMEM;
-	}
 	reset_sa_dir(dir);
 	return 0;
 }
@@ -569,9 +561,8 @@ static int init_tfm(struct crypto_tfm *tfm)
 	if (ret)
 		return ret;
 	ret = init_sa_dir(&ctx->decrypt);
-	if (ret) {
+	if (ret)
 		free_sa_dir(&ctx->encrypt);
-	}
 	return ret;
 }
 
@@ -622,9 +613,8 @@ static int register_chain_var(struct crypto_tfm *tfm, u8 xpad, u32 target,
 
 	memcpy(pad, key, key_len);
 	memset(pad + key_len, 0, HMAC_PAD_BLOCKLEN - key_len);
-	for (i = 0; i < HMAC_PAD_BLOCKLEN; i++) {
+	for (i = 0; i < HMAC_PAD_BLOCKLEN; i++)
 		pad[i] ^= xpad;
-	}
 
 	crypt->data.tfm = tfm;
 	crypt->regist_ptr = pad;
@@ -666,7 +656,7 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 	algo = ix_hash(tfm);
 
 	/* write cfg word to cryptinfo */
-	cfgword = algo->cfgword | ( authsize << 6); /* (authsize/4) << 8 */
+	cfgword = algo->cfgword | (authsize << 6); /* (authsize/4) << 8 */
 #ifndef __ARMEB__
 	cfgword ^= 0xAA000000; /* change the "byte swap" flags */
 #endif
@@ -704,9 +694,8 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 	struct ix_sa_dir *dir = &ctx->decrypt;
 
 	crypt = get_crypt_desc_emerg();
-	if (!crypt) {
+	if (!crypt)
 		return -EAGAIN;
-	}
 	*(__be32 *)dir->npe_ctx |= cpu_to_be32(CIPH_ENCR);
 
 	crypt->data.tfm = tfm;
@@ -741,32 +730,30 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 	if (encrypt) {
 		cipher_cfg = cipher_cfg_enc(tfm);
 		dir->npe_mode |= NPE_OP_CRYPT_ENCRYPT;
-	} else {
+	} else
 		cipher_cfg = cipher_cfg_dec(tfm);
-	}
+
 	if (cipher_cfg & MOD_AES) {
 		switch (key_len) {
-			case 16: keylen_cfg = MOD_AES128 | KEYLEN_128; break;
-			case 24: keylen_cfg = MOD_AES192 | KEYLEN_192; break;
-			case 32: keylen_cfg = MOD_AES256 | KEYLEN_256; break;
-			default:
-				*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
-				return -EINVAL;
+		case 16: keylen_cfg = MOD_AES128 | KEYLEN_128; break;
+		case 24: keylen_cfg = MOD_AES192 | KEYLEN_192; break;
+		case 32: keylen_cfg = MOD_AES256 | KEYLEN_256; break;
+		default:
+			*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
+			return -EINVAL;
 		}
 		cipher_cfg |= keylen_cfg;
 	} else if (cipher_cfg & MOD_3DES) {
 		const u32 *K = (const u32 *)key;
 		if (unlikely(!((K[0] ^ K[2]) | (K[1] ^ K[3])) ||
-			     !((K[2] ^ K[4]) | (K[3] ^ K[5]))))
-		{
+			     !((K[2] ^ K[4]) | (K[3] ^ K[5])))) {
 			*flags |= CRYPTO_TFM_RES_BAD_KEY_SCHED;
 			return -EINVAL;
 		}
 	} else {
 		u32 tmp[DES_EXPKEY_WORDS];
-		if (des_ekey(tmp, key) == 0) {
+		if (des_ekey(tmp, key) == 0)
 			*flags |= CRYPTO_TFM_RES_WEAK_KEY;
-		}
 	}
 	/* write cfg word to cryptinfo */
 	*(__be32 *)cinfo = cpu_to_be32(cipher_cfg);
@@ -776,14 +763,13 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 	memcpy(cinfo, key, key_len);
 	/* NPE wants keylen set to DES3_EDE_KEY_SIZE even for single DES */
 	if (key_len < DES3_EDE_KEY_SIZE && !(cipher_cfg & MOD_AES)) {
-		memset(cinfo + key_len, 0, DES3_EDE_KEY_SIZE -key_len);
+		memset(cinfo + key_len, 0, DES3_EDE_KEY_SIZE - key_len);
 		key_len = DES3_EDE_KEY_SIZE;
 	}
 	dir->npe_ctx_idx = sizeof(cipher_cfg) + key_len;
 	dir->npe_mode |= NPE_OP_CRYPT_ENABLE;
-	if ((cipher_cfg & MOD_AES) && !encrypt) {
+	if ((cipher_cfg & MOD_AES) && !encrypt)
 		return gen_rev_aes_key(tfm);
-	}
 	return 0;
 }
 
@@ -792,7 +778,7 @@ static struct buffer_desc *chainup_buffers(struct device *dev,
 		struct buffer_desc *buf, gfp_t flags,
 		enum dma_data_direction dir)
 {
-	for (;nbytes > 0; sg = scatterwalk_sg_next(sg)) {
+	for (; nbytes > 0; sg = scatterwalk_sg_next(sg)) {
 		unsigned len = min(nbytes, sg->length);
 		struct buffer_desc *next_buf;
 		u32 next_buf_phys;
@@ -843,11 +829,10 @@ static int ablk_setkey(struct crypto_ablkcipher *tfm, const u8 *key,
 		goto out;
 
 	if (*flags & CRYPTO_TFM_RES_WEAK_KEY) {
-		if (*flags & CRYPTO_TFM_REQ_WEAK_KEY) {
+		if (*flags & CRYPTO_TFM_REQ_WEAK_KEY)
 			ret = -EINVAL;
-		} else {
+		else
 			*flags &= ~CRYPTO_TFM_RES_WEAK_KEY;
-		}
 	}
 out:
 	if (!atomic_dec_and_test(&ctx->configuring))
@@ -919,9 +904,8 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 		src_direction = DMA_TO_DEVICE;
 		req_ctx->dst = dst_hook.next;
 		crypt->dst_buf = dst_hook.phys_next;
-	} else {
+	} else
 		req_ctx->dst = NULL;
-	}
 	req_ctx->src = NULL;
 	if (!chainup_buffers(dev, req->src, nbytes, &src_hook,
 				flags, src_direction))
@@ -937,9 +921,8 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 free_buf_src:
 	free_buf_chain(dev, req_ctx->src, crypt->src_buf);
 free_buf_dest:
-	if (req->src != req->dst) {
+	if (req->src != req->dst)
 		free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
-	}
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
 	return -ENOMEM;
 }
@@ -963,7 +946,7 @@ static int ablk_rfc3686_crypt(struct ablkcipher_request *req)
 	int ret;
 
 	/* set up counter block */
-        memcpy(iv, ctx->nonce, CTR_RFC3686_NONCE_SIZE);
+	memcpy(iv, ctx->nonce, CTR_RFC3686_NONCE_SIZE);
 	memcpy(iv + CTR_RFC3686_NONCE_SIZE, info, CTR_RFC3686_IV_SIZE);
 
 	/* initialize counter portion of counter block */
@@ -1020,7 +1003,7 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	} else {
 		dir = &ctx->decrypt;
 		/* req->cryptlen includes the authsize when decrypting */
-		cryptlen = req->cryptlen -authsize;
+		cryptlen = req->cryptlen - authsize;
 		eff_cryptlen -= authsize;
 	}
 	crypt = get_crypt_desc();
@@ -1040,9 +1023,8 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	BUG_ON(ivsize && !req->iv);
 	memcpy(crypt->iv, req->iv, ivsize);
 
-	if (req->src != req->dst) {
+	if (req->src != req->dst)
 		BUG(); /* -ENOTSUP because of my lazyness */
-	}
 
 	/* ASSOC data */
 	buf = chainup_buffers(dev, req->assoc, req->assoclen, &src_hook,
@@ -1065,32 +1047,28 @@ static int aead_perform(struct aead_request *req, int encrypt,
 				&crypt->icv_rev_aes);
 		if (unlikely(!req_ctx->hmac_virt))
 			goto free_chain;
-		if (!encrypt) {
+		if (!encrypt)
 			scatterwalk_map_and_copy(req_ctx->hmac_virt,
 				req->src, cryptlen, authsize, 0);
-		}
 		req_ctx->encrypt = encrypt;
-	} else {
+	} else
 		req_ctx->hmac_virt = NULL;
-	}
 	/* Crypt */
 	buf = chainup_buffers(dev, req->src, cryptlen + authsize, buf, flags,
 			DMA_BIDIRECTIONAL);
 	if (!buf)
 		goto free_hmac_virt;
-	if (!req_ctx->hmac_virt) {
+	if (!req_ctx->hmac_virt)
 		crypt->icv_rev_aes = buf->phys_addr + buf->buf_len - authsize;
-	}
 
 	crypt->ctl_flags |= CTL_FLAG_PERFORM_AEAD;
 	qmgr_put_entry(SEND_QID, crypt_virt2phys(crypt));
 	BUG_ON(qmgr_stat_overflow(SEND_QID));
 	return -EINPROGRESS;
 free_hmac_virt:
-	if (req_ctx->hmac_virt) {
+	if (req_ctx->hmac_virt)
 		dma_pool_free(buffer_pool, req_ctx->hmac_virt,
 				crypt->icv_rev_aes);
-	}
 free_chain:
 	free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
 out:
@@ -1132,9 +1110,8 @@ static int aead_setup(struct crypto_aead *tfm, unsigned int authsize)
 		if (*flags & CRYPTO_TFM_REQ_WEAK_KEY) {
 			ret = -EINVAL;
 			goto out;
-		} else {
+		} else
 			*flags &= ~CRYPTO_TFM_RES_WEAK_KEY;
-		}
 	}
 out:
 	if (!atomic_dec_and_test(&ctx->configuring))
@@ -1220,7 +1197,7 @@ static int aead_givencrypt(struct aead_givcrypt_request *req)
 	seq = cpu_to_be64(req->seq);
 	memcpy(req->giv + ivsize - len, &seq, len);
 	return aead_perform(&req->areq, 1, req->areq.assoclen,
-			req->areq.cryptlen +ivsize, req->giv);
+			req->areq.cryptlen + ivsize, req->giv);
 }
 
 static struct ixp_alg ixp4xx_algos[] = {
@@ -1417,7 +1394,7 @@ static struct ixp_alg ixp4xx_algos[] = {
 static int __init ixp_module_init(void)
 {
 	int num = ARRAY_SIZE(ixp4xx_algos);
-	int i,err ;
+	int i, err;
 
 	if (platform_device_register(&pseudo_dev))
 		return -ENODEV;
@@ -1430,18 +1407,14 @@ static int __init ixp_module_init(void)
 		platform_device_unregister(&pseudo_dev);
 		return err;
 	}
-	for (i=0; i< num; i++) {
+	for (i = 0; i < num; i++) {
 		struct crypto_alg *cra = &ixp4xx_algos[i].crypto;
 
 		if (snprintf(cra->cra_driver_name, CRYPTO_MAX_ALG_NAME,
-			"%s"IXP_POSTFIX, cra->cra_name) >=
-			CRYPTO_MAX_ALG_NAME)
-		{
+			"%s"IXP_POSTFIX, cra->cra_name) >= CRYPTO_MAX_ALG_NAME)
 			continue;
-		}
-		if (!support_aes && (ixp4xx_algos[i].cfg_enc & MOD_AES)) {
+		if (!support_aes && (ixp4xx_algos[i].cfg_enc & MOD_AES))
 			continue;
-		}
 		if (!ixp4xx_algos[i].hash) {
 			/* block ciphers */
 			cra->cra_type = &crypto_ablkcipher_type;
@@ -1485,7 +1458,7 @@ static void __exit ixp_module_exit(void)
 	int num = ARRAY_SIZE(ixp4xx_algos);
 	int i;
 
-	for (i=0; i< num; i++) {
+	for (i = 0; i < num; i++) {
 		if (ixp4xx_algos[i].registered)
 			crypto_unregister_alg(&ixp4xx_algos[i].crypto);
 	}
