@@ -450,7 +450,7 @@ static int init_ixp_crypto(void)
 	if (npe_recv_message(npe_c, msg, "STATUS_MSG"))
 		goto npe_error;
 
-	switch ((msg[1]>>16) & 0xff) {
+	switch ((msg[1] >> 16) & 0xff) {
 	case 3:
 		printk(KERN_WARNING "Firmware of %s lacks AES support\n",
 				npe_name(npe_c));
