@@ -278,26 +278,25 @@ static struct crypt_ctl *get_crypt_desc(void)
 	int i;
 	static int idx = 0;
 	unsigned long flags;
+	struct crypt_ctl *desc = NULL;
 
 	spin_lock_irqsave(&desc_lock, flags);
 
 	if (unlikely(!crypt_virt))
 		setup_crypt_desc();
-	if (unlikely(!crypt_virt)) {
-		spin_unlock_irqrestore(&desc_lock, flags);
-		return NULL;
-	}
+	if (unlikely(!crypt_virt))
+		goto out;
+
 	i = idx;
 	if (crypt_virt[i].ctl_flags == CTL_FLAG_UNUSED) {
 		if (++idx >= NPE_QLEN)
 			idx = 0;
 		crypt_virt[i].ctl_flags = CTL_FLAG_USED;
-		spin_unlock_irqrestore(&desc_lock, flags);
-		return crypt_virt +i;
-	} else {
-		spin_unlock_irqrestore(&desc_lock, flags);
-		return NULL;
+		desc = crypt_virt + i;
 	}
+out:
+	spin_unlock_irqrestore(&desc_lock, flags);
+	return desc;
 }
 
 static spinlock_t emerg_lock;
@@ -320,12 +319,10 @@ static struct crypt_ctl *get_crypt_desc_emerg(void)
 		if (++idx >= NPE_QLEN_TOTAL)
 			idx = NPE_QLEN;
 		crypt_virt[i].ctl_flags = CTL_FLAG_USED;
-		spin_unlock_irqrestore(&emerg_lock, flags);
-		return crypt_virt +i;
-	} else {
-		spin_unlock_irqrestore(&emerg_lock, flags);
-		return NULL;
+		desc = crypt_virt +i;
 	}
+	spin_unlock_irqrestore(&emerg_lock, flags);
+	return desc;
 }
 
 static void free_buf_chain(struct device *dev, struct buffer_desc *buf,u32 phys)
