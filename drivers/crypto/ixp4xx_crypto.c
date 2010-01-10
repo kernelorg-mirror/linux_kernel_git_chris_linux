@@ -788,8 +788,8 @@ static struct buffer_desc *chainup_buffers(struct device *dev,
 		ptr = page_address(sg_page(sg)) + sg->offset;
 		next_buf = dma_pool_alloc(buffer_pool, flags, &next_buf_phys);
 		if (!next_buf) {
-			buf = NULL;
-			break;
+			buf->next = NULL;
+			return NULL;
 		}
 		sg_dma_address(sg) = dma_map_single(dev, ptr, len, dir);
 		buf->next = next_buf;
