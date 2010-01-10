@@ -105,7 +105,7 @@ struct buffer_desc {
 	u16 buf_len;
 #endif
 	u32 phys_addr;
-	u32 __reserved[4];
+	u32 __reserved[5];
 	struct buffer_desc *next;
 	enum dma_data_direction dir;
 };
@@ -121,7 +121,7 @@ struct crypt_ctl {
 	u8 mode;		/* NPE_OP_*  operation mode */
 #endif
 	u8 iv[MAX_IVLEN];	/* IV for CBC mode or CTR IV for CTR mode */
-	u32 icv_rev_aes;	/* icv or rev aes */
+	u32 icv_rev_aes;	/* address to store icv or rev aes */
 	u32 src_buf;
 	u32 dst_buf;
 #ifdef __ARMEB__
@@ -430,8 +430,8 @@ static int init_ixp_crypto(void)
 	int ret = -ENODEV;
 	u32 msg[2] = { 0, 0 };
 
-	if (! ( ~(*IXP4XX_EXP_CFG2) & (IXP4XX_FEATURE_HASH |
-				IXP4XX_FEATURE_AES | IXP4XX_FEATURE_DES))) {
+	if (!(ixp4xx_read_feature_bits() &
+	      (IXP4XX_FEATURE_HASH | IXP4XX_FEATURE_AES | IXP4XX_FEATURE_DES))) {
 		printk(KERN_ERR "ixp_crypto: No HW crypto available\n");
 		return ret;
 	}
@@ -443,15 +443,11 @@ static int init_ixp_crypto(void)
 		ret = npe_load_firmware(npe_c, npe_name(npe_c), dev);
 		if (ret)
 			return ret;
-		if (npe_recv_message(npe_c, msg, "STATUS_MSG"))
-			goto npe_error;
-	} else {
-		if (npe_send_message(npe_c, msg, "STATUS_MSG"))
-			goto npe_error;
+	} else if (npe_send_message(npe_c, msg, "STATUS_MSG"))
+		goto npe_error;
 
-		if (npe_recv_message(npe_c, msg, "STATUS_MSG"))
-			goto npe_error;
-	}
+	if (npe_recv_message(npe_c, msg, "STATUS_MSG"))
+		goto npe_error;
 
 	switch ((msg[1]>>16) & 0xff) {
 	case 3:
@@ -1123,7 +1119,7 @@ static int aead_setauthsize(struct crypto_aead *tfm, unsigned int authsize)
 {
 	int max = crypto_aead_alg(tfm)->maxauthsize >> 2;
 
-	if ((authsize>>2) < 1 || (authsize>>2) > max || (authsize & 3))
+	if ((authsize >> 2) < 1 || (authsize >> 2) > max || (authsize & 3))
 		return -EINVAL;
 	return aead_setup(tfm, authsize);
 }
