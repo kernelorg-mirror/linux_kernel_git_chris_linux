@@ -311,7 +311,7 @@ static inline void
 __ixp4xx_outsl(u32 io_addr, const u32 *vaddr, u32 count)
 {
 	while (count--)
-		outl(*vaddr++, io_addr);
+		outl(cpu_to_le32(*vaddr++), io_addr);
 }
 
 static inline u8 
@@ -366,7 +366,7 @@ static inline void
 __ixp4xx_insl(u32 io_addr, u32 *vaddr, u32 count)
 {
 	while (count--)
-		*vaddr++ = inl(io_addr);
+		*vaddr++ = le32_to_cpu(inl(io_addr));
 }
 
 #define PIO_OFFSET      0x10000UL
@@ -374,15 +374,16 @@ __ixp4xx_insl(u32 io_addr, u32 *vaddr, u32 count)
 
 #define	__is_io_address(p)	(((unsigned long)p >= PIO_OFFSET) && \
 					((unsigned long)p <= (PIO_MASK + PIO_OFFSET)))
+
 static inline unsigned int
 __ixp4xx_ioread8(const void __iomem *addr)
 {
 	unsigned long port = (unsigned long __force)addr;
 	if (__is_io_address(port))
-		return	(unsigned int)__ixp4xx_inb(port & PIO_MASK);
+		return (unsigned int)__ixp4xx_inb(port & PIO_MASK);
 	else
 #ifndef CONFIG_IXP4XX_INDIRECT_PCI
-		return (unsigned int)__raw_readb(port);
+		return (unsigned int)__raw_readb(addr);
 #else
 		return (unsigned int)__ixp4xx_readb(addr);
 #endif
@@ -410,7 +411,7 @@ __ixp4xx_ioread16(const void __iomem *addr)
 		return	(unsigned int)__ixp4xx_inw(port & PIO_MASK);
 	else
 #ifndef CONFIG_IXP4XX_INDIRECT_PCI
-		return le16_to_cpu(__raw_readw((u32)port));
+		return le16_to_cpu((__force __le16)__raw_readw(addr));
 #else
 		return (unsigned int)__ixp4xx_readw(addr);
 #endif
@@ -467,7 +468,7 @@ __ixp4xx_iowrite8(u8 value, void __iomem *addr)
 		__ixp4xx_outb(value, port & PIO_MASK);
 	else
 #ifndef CONFIG_IXP4XX_INDIRECT_PCI
-		__raw_writeb(value, port);
+		__raw_writeb(value, addr);
 #else
 		__ixp4xx_writeb(value, addr);
 #endif
