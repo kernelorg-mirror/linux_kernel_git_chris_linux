@@ -38,20 +38,14 @@
 
 
 /*
- * IXP4xx PCI read function is dependent on whether we are 
- * running A0 or B0 (AppleGate) silicon.
- */
-int (*ixp4xx_pci_read)(u32 addr, u32 cmd, u32* data);
-
-/*
- * Base address for PCI regsiter region
+ * Base address for PCI register region
  */
 unsigned long ixp4xx_pci_reg_base = 0;
 
 /*
  * PCI cfg an I/O routines are done by programming a 
  * command/byte enable register, and then read/writing
- * the data from a data regsiter. We need to ensure
+ * the data from a data register. We need to ensure
  * these transactions are atomic or we will end up
  * with corrupt data on the bus or in a driver.
  */
@@ -96,49 +90,40 @@ static inline int check_master_abort(void)
 	return 0;
 }
 
-int ixp4xx_pci_read_errata(u32 addr, u32 cmd, u32* data)
+int ixp4xx_pci_read(u32 addr, u32 cmd, u32* data)
 {
 	unsigned long flags;
 	int retval = 0;
-	int i;
 
 	raw_spin_lock_irqsave(&ixp4xx_pci_lock, flags);
 
 	*PCI_NP_AD = addr;
 
-	/* 
-	 * PCI workaround  - only works if NP PCI space reads have 
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
+        if (cpu_is_ixp42x_rev_a0()) {
+		int i;
+	/*
+	 * PCI workaround  - only works if NP PCI space reads have
 	 * no side effects!!! Read 8 times. last one will be good.
 	 */
-	for (i = 0; i < 8; i++) {
-		*PCI_NP_CBE = cmd;
-		*data = *PCI_NP_RDATA;
-		*data = *PCI_NP_RDATA;
+		for (i = 0; i < 8; i++) {
+			*PCI_NP_CBE = cmd;
+			*data = *PCI_NP_RDATA;
+			*data = *PCI_NP_RDATA;
+		}
+		goto out;
 	}
-
-	if(check_master_abort())
-		retval = 1;
-
-	raw_spin_unlock_irqrestore(&ixp4xx_pci_lock, flags);
-	return retval;
-}
-
-int ixp4xx_pci_read_no_errata(u32 addr, u32 cmd, u32* data)
-{
-	unsigned long flags;
-	int retval = 0;
-
-	raw_spin_lock_irqsave(&ixp4xx_pci_lock, flags);
-
-	*PCI_NP_AD = addr;
-
-	/* set up and execute the read */    
+#endif
+	/* set up and execute the read */
 	*PCI_NP_CBE = cmd;
 
 	/* the result of the read is now in NP_RDATA */
-	*data = *PCI_NP_RDATA; 
+	*data = *PCI_NP_RDATA;
 
-	if(check_master_abort())
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
+out:
+#endif
+	if (check_master_abort())
 		retval = 1;
 
 	raw_spin_unlock_irqrestore(&ixp4xx_pci_lock, flags);
@@ -345,25 +330,11 @@ static int ixp4xx_pci_platform_notify_remove(struct device *dev)
 
 void __init ixp4xx_pci_preinit(void)
 {
-	unsigned long cpuid = read_cpuid_id();
-
 #ifdef CONFIG_IXP4XX_INDIRECT_PCI
 	pcibios_min_mem = 0x10000000; /* 1 GB of indirect PCI MMIO space */
 #else
 	pcibios_min_mem = 0x48000000; /* 64 MB of PCI MMIO space */
 #endif
-	/*
-	 * Determine which PCI read method to use.
-	 * Rev 0 IXP425 requires workaround.
-	 */
-	if (!(cpuid & 0xf) && cpu_is_ixp42x()) {
-		printk("PCI: IXP42x A0 silicon detected - "
-			"PCI Non-Prefetch Workaround Enabled\n");
-		ixp4xx_pci_read = ixp4xx_pci_read_errata;
-	} else
-		ixp4xx_pci_read = ixp4xx_pci_read_no_errata;
-
-
 	/* hook in our fault handler for PCI errors */
 	hook_fault_code(16+6, abort_handler, SIGBUS, 0,
 			"imprecise external abort");
