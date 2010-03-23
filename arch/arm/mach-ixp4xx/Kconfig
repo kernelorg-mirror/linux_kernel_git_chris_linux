@@ -181,6 +181,20 @@ config MACH_GTWX5715
 
 comment "IXP4xx Options"
 
+config IXP4XX_SUPPORT_425A0
+	bool "Support early IXP42x processors (stepping A0)"
+	default y
+	help
+	  Early IXP425 (and IXC1100) processors are missing several hardware
+	  features and require many work-arounds. With this option you will
+	  be able to run Linux on those old processors, at the cost of increased
+	  code size. Some features like hardware watchdog timer will only be
+	  available on IXP42x stepping B0 or later processors.
+	  IXP43x, IXP45x and IXP46x CPUs are not affected by this option.
+
+	  If you don't plan to use IXP425 stepping A0 CPUs, say "N".
+	  If unsure, say "Y".
+
 config IXP4XX_INDIRECT_PCI
 	bool "Use indirect PCI memory access"
 	depends on PCI

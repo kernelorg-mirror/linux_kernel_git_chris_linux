@@ -48,6 +48,7 @@ void qmgr_set_irq(unsigned int queue, int src,
 	spin_unlock_irqrestore(&qmgr_lock, flags);
 }
 
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
 
 static irqreturn_t qmgr_irq1_a0(int irq, void *pdev)
 {
@@ -91,7 +92,7 @@ static irqreturn_t qmgr_irq2_a0(int irq, void *pdev)
 	}
 	return ret;
 }
-
+#endif /* CONFIG_IXP4XX_SUPPORT_425A0 */
 
 static irqreturn_t qmgr_irq(int irq, void *pdev)
 {
@@ -316,10 +317,12 @@ static int qmgr_init(void)
 	for (i = 0; i < QUEUES; i++)
 		__raw_writel(0, &qmgr_regs->sram[i]);
 
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
 	if (cpu_is_ixp42x_rev_a0()) {
 		handler1 = qmgr_irq1_a0;
 		handler2 = qmgr_irq2_a0;
 	} else
+#endif
 		handler1 = handler2 = qmgr_irq;
 
 	err = request_irq(IRQ_IXP4XX_QM1, handler1, 0, "IXP4xx Queue Manager",
