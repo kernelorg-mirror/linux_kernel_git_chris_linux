@@ -176,11 +176,12 @@ static int __init ixp4xx_wdt_init(void)
 {
 	int ret;
 
-	if (!(read_cpuid_id() & 0xf) && !cpu_is_ixp46x()) {
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
+	if (cpu_is_ixp42x_rev_a0()) {
 		pr_err("Rev. A0 IXP42x CPU detected - watchdog disabled\n");
-
 		return -ENODEV;
 	}
+#endif
 	boot_status = (*IXP4XX_OSST & IXP4XX_OSST_TIMER_WARM_RESET) ?
 			WDIOF_CARDRESET : 0;
 	ret = misc_register(&ixp4xx_wdt_miscdev);
