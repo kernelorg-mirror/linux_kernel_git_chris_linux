@@ -5,7 +5,8 @@
 
 #include <linux/delay.h>
 #include <linux/hdlc.h>
-#include <linux/i2c-gpio.h>
+#include <linux/i2c.h>
+#include <linux/i2c-algo-bit.h>
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/kernel.h>
@@ -120,22 +121,63 @@ static inline int has_pci(void)
 	return has_nec() || has_cs5536() || (hw_bits & CFG_HW_HAS_PCI_SLOT);
 }
 
-static void set_scl(u8 value)
+/* 2-wire I^2C (100 kHz) shared with 3-wire 74HC4094 */
+
+static inline void set_scl(int value)
 {
-	gpio_line_set(GPIO_SCL, !!value);
-	udelay(3);
+	/* has pull-up on SCL */
+	gpio_line_config(GPIO_SCL, value ? IXP4XX_GPIO_IN : IXP4XX_GPIO_OUT);
 }
 
-static void set_sda(u8 value)
+static inline void set_sda(int value)
 {
-	gpio_line_set(GPIO_SDA, !!value);
-	udelay(3);
+	/* has pull-up on SDA */
+	gpio_line_config(GPIO_SDA, value ? IXP4XX_GPIO_IN : IXP4XX_GPIO_OUT);
 }
 
-static void set_str(u8 value)
+static void i2c_set_scl(void *data, int value)
+{
+	set_scl(value);
+}
+
+static void i2c_set_sda(void *data, int value)
+{
+	set_sda(value);
+}
+
+static int i2c_get_scl(void *data)
+{
+	int value;
+	gpio_line_get(GPIO_SCL, &value);
+	return value;
+}
+
+static int i2c_get_sda(void *data)
+{
+	int value;
+	gpio_line_get(GPIO_SDA, &value);
+	return value;
+}
+
+static struct i2c_algo_bit_data i2c_bit_data = {
+	.setscl    = i2c_set_scl,
+	.setsda    = i2c_set_sda,
+	.getscl    = i2c_get_scl,
+	.getsda    = i2c_get_sda,
+	.udelay    = 5,		/* 100 kHz */
+	.timeout   = HZ / 10,	/* 100 ms */
+};
+
+static struct i2c_adapter i2c_adapter = {
+	.owner     = THIS_MODULE,
+	.name      = "i2c-multilink",
+	.algo_data = &i2c_bit_data,
+	.class     = I2C_CLASS_HWMON | I2C_CLASS_SPD,
+};
+
+static inline void set_str(int value)
 {
 	gpio_line_set(GPIO_STR, !!value);
-	udelay(3);
 }
 
 static inline void set_control(int line, int value)
@@ -147,27 +189,40 @@ static inline void set_control(int line, int value)
 }
 
 
-static void output_control(void)
+static void output_control_nolock(void)
 {
 	int i;
 
-	gpio_line_config(GPIO_SCL, IXP4XX_GPIO_OUT);
-	gpio_line_config(GPIO_SDA, IXP4XX_GPIO_OUT);
-
 	for (i = 0; i < 8; i++) {
 		set_scl(0);
+		udelay(5);
 		set_sda(control_value & (0x80 >> i)); /* MSB first */
+		udelay(5);
 		set_scl(1);	/* active edge */
+		udelay(5);
 	}
 
 	set_str(1);
+	udelay(5);
 	set_str(0);
+	udelay(5);
 
 	set_scl(0);
+	udelay(5);
 	set_sda(1);		/* Be ready for START */
+	udelay(5);
 	set_scl(1);
+	udelay(5);
 }
 
+static void output_control(void)
+{
+	mutex_lock(&i2c_adapter.bus_lock);
+	output_control_nolock();
+	mutex_unlock(&i2c_adapter.bus_lock);
+}
+
+/* HSS */
 
 static void (*set_carrier_cb_tab[2])(void *pdev, int carrier);
 
@@ -259,20 +314,6 @@ static struct platform_device device_flash = {
 	.num_resources	= 1,
 	.resource	= &flash_resource,
 };
-
-
-/* I^2C interface */
-static struct i2c_gpio_platform_data i2c_data = {
-	.sda_pin	= GPIO_SDA,
-	.scl_pin	= GPIO_SCL,
-};
-
-static struct platform_device device_i2c = {
-	.name		= "i2c-gpio",
-	.id		= 0,
-	.dev		= { .platform_data = &i2c_data },
-};
-
 
 /* IXP425 2 UART ports */
 static struct resource uart_resources[] = {
@@ -393,7 +434,7 @@ static struct platform_device device_rtc = {
 };
 
 
-static struct platform_device *device_tab[7] __initdata = {
+static struct platform_device *device_tab[6] __initdata = {
 	&device_flash,		/* index 0 */
 };
 
@@ -473,15 +514,9 @@ static void __init gmlr_init(void)
 	if (hw_bits & CFG_HW_HAS_HSS1)
 		device_tab[devices++] = &device_hss_tab[1]; /* max index 5 */
 
-	if (hw_bits & CFG_HW_HAS_EEPROM)
-		device_tab[devices++] = &device_i2c; /* max index 6 */
-
 	if (hw_bits & CFG_HW_HAS_RTC)
-		device_tab[devices++] = &device_rtc; /* max index 7 */
+		device_tab[devices++] = &device_rtc; /* max index 6 */
 
-	gpio_line_config(GPIO_SCL, IXP4XX_GPIO_OUT);
-	gpio_line_config(GPIO_SDA, IXP4XX_GPIO_OUT);
-	gpio_line_config(GPIO_STR, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS0_RTS_N, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS1_RTS_N, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS0_DCD_N, IXP4XX_GPIO_IN);
@@ -489,21 +524,28 @@ static void __init gmlr_init(void)
 	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_HSS0_DCD_N), IRQ_TYPE_EDGE_BOTH);
 	set_irq_type(IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N), IRQ_TYPE_EDGE_BOTH);
 
+	gpio_line_set(GPIO_SCL, 0);
+	gpio_line_set(GPIO_SDA, 0);
+	gpio_line_config(GPIO_STR, IXP4XX_GPIO_OUT);
 	set_control(CONTROL_HSS0_DTR_N, 1);
 	set_control(CONTROL_HSS1_DTR_N, 1);
 	set_control(CONTROL_EEPROM_WC_N, 1);
 	set_control(CONTROL_PCI_RESET_N, 0);
-	output_control();
+	output_control_nolock();
 
 	msleep(1);
 
 	set_control(CONTROL_PCI_RESET_N, 1);
-	output_control();
+	output_control_nolock();
 
 	msleep(100);	      /* Wait for PCI devices to initialize */
 
 	flash_resource.start = IXP4XX_EXP_BUS_BASE(0);
 	flash_resource.end = IXP4XX_EXP_BUS_BASE(0) + ixp4xx_exp_bus_size - 1;
+
+	/* Make sure I^2C is initialized before loading HSS driver */
+	if (i2c_bit_add_numbered_bus(&i2c_adapter))
+		panic(KERN_CRIT "FATAL: Unable to initialize I2C bus\n");
 
 	platform_add_devices(device_tab, devices);
 }
