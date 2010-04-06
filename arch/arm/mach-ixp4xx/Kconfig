@@ -80,6 +80,8 @@ config MACH_IXDP465
 
 config MACH_GORAMO_MLR
 	bool "GORAMO Multi Link Router"
+	select I2C
+	select I2C_ALGOBIT
 	help
 	  Say 'Y' here if you want your kernel to support GORAMO
 	  MultiLink router.
