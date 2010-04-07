@@ -22,6 +22,19 @@ config ATH_DEBUG
 	  Say Y, if you want to debug atheros wireless drivers.
 	  Right now only ath9k makes use of this.
 
+config ATH_DEFAULT_COUNTRY
+	int "Default country code for Atheros cards"
+	range 1 8191
+	default "840"
+	---help---
+	  This allows you to specify a default country code for cards which
+	  don't specify their country code and which indicate that the default
+	  country should be used.
+	  It has no effect on cards which _do_ specify the country code or
+	  a (non-zero) regulatory domain.
+
+	  If building for use in the USA, say "840".
+
 source "drivers/net/wireless/ath/ath5k/Kconfig"
 source "drivers/net/wireless/ath/ath9k/Kconfig"
 source "drivers/net/wireless/ath/ar9170/Kconfig"
