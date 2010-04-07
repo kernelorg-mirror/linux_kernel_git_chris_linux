@@ -240,7 +240,7 @@ static inline void memcpy_swab32(u32 *dest, u32 *src, int cnt)
 
 static spinlock_t mdio_lock;
 static struct eth_regs __iomem *mdio_regs; /* mdio command and status only */
-struct mii_bus *mdio_bus;
+static struct mii_bus *mdio_bus;
 static int ports_open;
 static struct port *npe_port_tab[MAX_NPES];
 static struct dma_pool *dma_pool;
@@ -322,7 +322,7 @@ static int ixp4xx_mdio_write(struct mii_bus *bus, int phy_id, int location,
 	ret = ixp4xx_mdio_cmd(bus, phy_id, location, 1, val);
 	spin_unlock_irqrestore(&mdio_lock, flags);
 #if DEBUG_MDIO
-	printk(KERN_DEBUG "%s #%i: MII read [%i] <- 0x%X, err = %i\n",
+	printk(KERN_DEBUG "%s #%i: MII write [%i] <- 0x%X, err = %i\n",
 	       bus->name, phy_id, location, val, ret);
 #endif
 	return ret;

@@ -173,6 +173,7 @@
 #define IP_NAME_SZ 32
 #define MAX_MPLS_LABELS 16 /* This is the max label stack depth */
 #define MPLS_STACK_BOTTOM htonl(0x00000100)
+#define MAX_PAYLOAD_LEN 1500
 
 /* Device flag bits */
 #define F_IPSRC_RND   (1<<0)	/* IP-Src Random  */
@@ -190,6 +191,7 @@
 #define F_IPSEC_ON    (1<<12)	/* ipsec on for flows */
 #define F_QUEUE_MAP_RND (1<<13)	/* queue map Random */
 #define F_QUEUE_MAP_CPU (1<<14)	/* queue map mirrors smp_processor_id() */
+#define F_PAYLOAD_RND (1<<15)	/* rest of the payload is pseudorandom */
 
 /* Thread control flag bits */
 #define T_STOP        (1<<0)	/* Stop run */
@@ -372,12 +374,14 @@ struct pktgen_dev {
 
 	u16 queue_map_min;
 	u16 queue_map_max;
+	u16 payload_len;
 
 #ifdef CONFIG_XFRM
 	__u8	ipsmode;		/* IPSEC mode (config) */
 	__u8	ipsproto;		/* IPSEC type (config) */
 #endif
 	char result[512];
+	u8 payload[MAX_PAYLOAD_LEN];
 };
 
 struct pktgen_hdr {
@@ -607,6 +611,17 @@ static int pktgen_if_show(struct seq_file *seq, void *v)
 	if (pkt_dev->traffic_class)
 		seq_printf(seq, "     traffic_class: 0x%02x\n", pkt_dev->traffic_class);
 
+	if (pkt_dev->payload_len) {
+		unsigned cnt;
+		seq_printf(seq, "     payload: ");
+		for (cnt = 0; cnt < pkt_dev->payload_len; cnt++) {
+			if (cnt)
+				seq_printf(seq, ":");
+			seq_printf(seq, "%02X", pkt_dev->payload[cnt]);
+		}
+		seq_printf(seq, "\n");
+	}
+
 	seq_printf(seq, "     Flags: ");
 
 	if (pkt_dev->flags & F_IPV6)
@@ -659,6 +674,9 @@ static int pktgen_if_show(struct seq_file *seq, void *v)
 
 	if (pkt_dev->flags & F_SVID_RND)
 		seq_printf(seq, "SVID_RND  ");
+
+	if (pkt_dev->flags & F_PAYLOAD_RND)
+		seq_printf(seq, "PAYLOAD_RND  ");
 
 	seq_puts(seq, "\n");
 
@@ -1158,6 +1176,14 @@ static ssize_t pktgen_if_write(struct file *file,
 
 		else if (strcmp(f, "!QUEUE_MAP_CPU") == 0)
 			pkt_dev->flags &= ~F_QUEUE_MAP_CPU;
+
+		else if (strcmp(f, "PAYLOAD_RND") == 0) {
+			pkt_dev->flags |= F_PAYLOAD_RND;
+			pkt_dev->payload_len = 0;
+		}
+
+		else if (strcmp(f, "!PAYLOAD_RND") == 0)
+			pkt_dev->flags &= ~F_PAYLOAD_RND;
 #ifdef CONFIG_XFRM
 		else if (strcmp(f, "IPSEC") == 0)
 			pkt_dev->flags |= F_IPSEC_ON;
@@ -1171,7 +1197,7 @@ static ssize_t pktgen_if_write(struct file *file,
 				"Flag -:%s:- unknown\nAvailable flags, (prepend ! to un-set flag):\n%s",
 				f,
 				"IPSRC_RND, IPDST_RND, UDPSRC_RND, UDPDST_RND, "
-				"MACSRC_RND, MACDST_RND, TXSIZE_RND, IPV6, MPLS_RND, VID_RND, SVID_RND, FLOW_SEQ, IPSEC\n");
+				"MACSRC_RND, MACDST_RND, TXSIZE_RND, IPV6, MPLS_RND, VID_RND, SVID_RND, FLOW_SEQ, QUEUE_MAP_RND, QUEUE_MAP_CPU, PAYLOAD_RND, IPSEC\n");
 			return count;
 		}
 		sprintf(pg_result, "OK: flags=0x%x", pkt_dev->flags);
@@ -1657,6 +1683,52 @@ static ssize_t pktgen_if_write(struct file *file,
 			sprintf(pg_result, "ERROR: traffic_class must be 00-ff");
 		}
 		return count;
+	}
+
+	if (!strcmp(name, "payload")) {
+		pkt_dev->flags &= ~F_PAYLOAD_RND;
+		pkt_dev->payload_len = 0;
+
+		while (pkt_dev->payload_len < MAX_PAYLOAD_LEN) {
+			unsigned cnt = pkt_dev->payload_len;
+			unsigned got_value = 0;
+
+			pkt_dev->payload[cnt] = 0;
+			while (1) {
+				char c;
+				u8 v;
+
+				if (get_user(c, &user_buffer[i++]))
+					return -EFAULT;
+				if (c >= '0' && c <= '9')
+					v = c - '0';
+				else if (c >= 'A' && c <= 'F')
+					v = c - 'A' + 10;
+				else if (c >= 'a' && c <= 'f')
+					v = c - 'a' + 10;
+				else if (c == ':') {
+					got_value = 1;
+					break;
+				} else {
+					if (got_value)
+						pkt_dev->payload_len++;
+					sprintf(pg_result, "OK: payload");
+					return count;
+				}
+				if (pkt_dev->payload[cnt] >= 0x10) {
+					sprintf(pg_result,
+						"ERROR: invalid number\n");
+					return -EINVAL;
+				}
+				got_value = 1;
+				pkt_dev->payload[cnt] <<= 4;
+				pkt_dev->payload[cnt] |= v;
+			}
+			pkt_dev->payload_len++;
+
+		}
+		sprintf(pkt_dev->result, "ERROR: payload too long");
+		return -EINVAL;
 	}
 
 	sprintf(pkt_dev->result, "No such parameter \"%s\"", name);
@@ -2648,7 +2720,23 @@ static struct sk_buff *fill_packet_ipv4(struct net_device *odev,
 
 	if (pkt_dev->nfrags <= 0) {
 		pgh = (struct pktgen_hdr *)skb_put(skb, datalen);
-		memset(pgh + 1, 0, datalen - sizeof(struct pktgen_hdr));
+		if (pkt_dev->flags & F_PAYLOAD_RND) {
+			u32 *tail = (u32 *)(pgh + 1);
+			/* there seems to be some space at the end of skb
+			   so don't bother with 8/16/24 bits */
+			while ((u8 *)tail < skb->tail)
+				*(tail++) = random32();
+		} else
+			memset(pgh + 1, 0, datalen - sizeof(struct pktgen_hdr));
+		if (pkt_dev->payload_len) {
+			u8 *tail = (u8 *)(pgh + 1);
+			unsigned len;
+			while ((len = min_t(unsigned, pkt_dev->payload_len,
+					    skb->tail - tail))) {
+				memcpy(tail, pkt_dev->payload, len);
+				tail += len;
+			}
+		}
 	} else {
 		int frags = pkt_dev->nfrags;
 		int i, len;
