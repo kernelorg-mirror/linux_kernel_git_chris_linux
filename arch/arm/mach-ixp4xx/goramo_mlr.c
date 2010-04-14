@@ -217,9 +217,9 @@ static void output_control_nolock(void)
 
 static void output_control(void)
 {
-	mutex_lock(&i2c_adapter.bus_lock);
+	rt_mutex_lock(&i2c_adapter.bus_lock);
 	output_control_nolock();
-	mutex_unlock(&i2c_adapter.bus_lock);
+	rt_mutex_unlock(&i2c_adapter.bus_lock);
 }
 
 /* HSS */
