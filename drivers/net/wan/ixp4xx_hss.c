@@ -1356,8 +1356,10 @@ static int hss_hdlc_open(struct net_device *dev)
 	if ((err = hss_load_firmware(port)))
 		goto err_hdlc_close;
 
-	if ((err = request_hdlc_queues(port)))
+	if ((err = request_hdlc_queues(port))) {
+		printk(KERN_INFO "HSS-%i: Unable to request QMgr HDLC queues\n", port->id);
 		goto err_hdlc_close;
+	}
 
 	if ((err = init_hdlc_queues(port)))
 		goto err_destroy_queues;
