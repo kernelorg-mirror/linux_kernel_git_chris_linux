@@ -541,7 +541,7 @@ static void hss_npe_send(struct port *port, struct msg *msg, const char* what)
 	}
 }
 
-static void hss_config_set_lut(struct port *port)
+static void hss_config_lut(struct port *port)
 {
 	struct msg msg;
 	int chan_count = 0, log_chan = 0, i, ch;
@@ -669,7 +669,7 @@ static void hss_config(struct port *port)
 	msg.data16b = port->frame_size - 1;
 	hss_npe_send(port, &msg, "HSS_SET_RX_FCR");
 
-	hss_config_set_lut(port);
+	hss_config_lut(port);
 
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = PORT_CONFIG_LOAD;
@@ -688,7 +688,7 @@ static void hss_config(struct port *port)
 	npe_recv_message(port->npe, &msg, "FLUSH_IT");
 }
 
-static void hss_set_hdlc_cfg(struct port *port)
+static void hss_config_hdlc(struct port *port)
 {
 	struct msg msg;
 
@@ -697,7 +697,7 @@ static void hss_set_hdlc_cfg(struct port *port)
 	msg.hss_port = port->id;
 	msg.data8a = port->hdlc_cfg; /* rx_cfg */
 	msg.data8b = port->hdlc_cfg | (PKT_EXTRA_FLAGS << 3); /* tx_cfg */
-	hss_npe_send(port, &msg, "HSS_SET_HDLC_CFG");
+	hss_npe_send(port, &msg, "HSS_HDLC_CFG_WRITE");
 }
 
 static u32 hss_get_status(struct port *port)
@@ -717,7 +717,7 @@ static u32 hss_get_status(struct port *port)
 	return msg.data32;
 }
 
-static void hss_start_chan(struct port *port)
+static void hss_chan_start(struct port *port)
 {
 	struct msg msg;
 
@@ -743,7 +743,7 @@ static void hss_start_chan(struct port *port)
 	port->chan_started = 1;
 }
 
-static void hss_stop_chan(struct port *port)
+static void hss_chan_stop(struct port *port)
 {
 	struct msg msg;
 
@@ -759,7 +759,7 @@ static void hss_stop_chan(struct port *port)
 	port->chan_started = 0;
 }
 
-static void hss_start_hdlc(struct port *port)
+static void hss_hdlc_start(struct port *port)
 {
 	struct msg msg;
 
@@ -770,7 +770,7 @@ static void hss_start_hdlc(struct port *port)
 	hss_npe_send(port, &msg, "HSS_ENABLE_PKT_PIPE");
 }
 
-static void hss_stop_hdlc(struct port *port)
+static void hss_hdlc_stop(struct port *port)
 {
 	struct msg msg;
 
@@ -1410,13 +1410,13 @@ static int hss_hdlc_open(struct net_device *dev)
 	ports_open++;
 	port->hdlc_open = 1;
 
-	hss_set_hdlc_cfg(port);
+	hss_config_hdlc(port);
 	hss_config(port);
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
-		hss_start_chan(port);
+		hss_chan_start(port);
 
-	hss_start_hdlc(port);
+	hss_hdlc_start(port);
 
 	/* we may already have RX data, enables IRQ */
 	napi_schedule(&port->napi);
@@ -1448,7 +1448,7 @@ static int hss_hdlc_close(struct net_device *dev)
 	netif_stop_queue(dev);
 	napi_disable(&port->napi);
 
-	hss_stop_hdlc(port);
+	hss_hdlc_stop(port);
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
 		hss_shutdown_chan(port);
@@ -1979,7 +1979,7 @@ release_queue:
 
 void hss_shutdown_chan(struct port *port)
 {
-	hss_stop_chan(port);
+	hss_chan_stop(port);
 
 	qmgr_disable_irq(queue_ids[port->id].chan);
 
@@ -2045,13 +2045,13 @@ static int hss_chan_open(struct inode *inode, struct file *file)
 		}
 	}
 
-	hss_stop_chan(port);
+	hss_chan_stop(port);
 	chan_dev->open_count++;
 	port->chan_open_count++;
 	chan_dev->excl_open = !!(file->f_flags & O_EXCL);
 
 	hss_config(port);
-	hss_start_chan(port);
+	hss_chan_start(port);
 out:
 	spin_unlock_irqrestore(&npe_lock, flags);
 	return err;
@@ -2071,9 +2071,9 @@ static int hss_chan_release(struct inode *inode, struct file *file)
 			if (port->plat->close)
 				port->plat->close(port->id, port->netdev);
 		} else {
-			hss_stop_chan(port);
+			hss_chan_stop(port);
 			hss_config(port);
-			hss_start_chan(port);
+			hss_chan_start(port);
 		}
 	}
 
