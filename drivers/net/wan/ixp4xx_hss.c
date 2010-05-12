@@ -615,7 +615,7 @@ static void hss_config_lut(struct port *port)
 			DMA_TO_DEVICE);
 }
 
-static void hss_config(struct port *port)
+static void hss_config_main(struct port *port)
 {
 	struct msg msg;
 
@@ -669,8 +669,11 @@ static void hss_config(struct port *port)
 	msg.data16a = port->frame_sync_offset;
 	msg.data16b = port->frame_size - 1;
 	hss_npe_send(port, &msg, "HSS_SET_RX_FCR");
+}
 
-	hss_config_lut(port);
+static void hss_config_load(struct port *port)
+{
+	struct msg msg;
 
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = PORT_CONFIG_LOAD;
@@ -686,6 +689,13 @@ static void hss_config(struct port *port)
 
 	/* HDLC may stop working without this - check FIXME */
 	npe_recv_message(port->npe, &msg, "FLUSH_IT");
+}
+
+static void hss_config(struct port *port)
+{
+	hss_config_main(port);
+	hss_config_lut(port);
+	hss_config_load(port);
 }
 
 static void hss_config_hdlc(struct port *port)
@@ -1342,6 +1352,24 @@ static void destroy_hdlc_queues(struct port *port)
 	}
 }
 
+static int hss_port_open(struct port *port)
+{
+	int err;
+
+	if (port->plat->open) {
+		err = port->plat->open(port->id, port->netdev, hss_hdlc_set_carrier);
+		if (err)
+			return err;
+	}
+	return 0;
+}
+
+static void hss_port_close(struct port *port)
+{
+	if (port->plat->close)
+		port->plat->close(port->id, port->netdev);
+}
+
 static int hss_hdlc_open(struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
@@ -1375,9 +1403,8 @@ static int hss_hdlc_open(struct net_device *dev)
 				goto err_unlock;
 			}
 
-	if (!port->chan_open_count && port->plat->open)
-		if ((err = port->plat->open(port->id, dev,
-					    hss_hdlc_set_carrier)))
+	if (!port->chan_open_count)
+		if ((err = hss_port_open(port)))
 			goto err_unlock;
 
 	if (port->mode == MODE_G704 && !port->chan_open_count)
@@ -1421,8 +1448,8 @@ static int hss_hdlc_open(struct net_device *dev)
 	return 0;
 
 err_plat_close:
-	if (!port->chan_open_count && port->plat->close)
-		port->plat->close(port->id, dev);
+	if (!port->chan_open_count)
+		hss_port_close(port);
 err_unlock:
 	spin_unlock_irqrestore(&npe_lock, flags);
 err_destroy_queues:
@@ -1481,8 +1508,8 @@ static int hss_hdlc_close(struct net_device *dev)
 #endif
 	qmgr_disable_irq(queue_ids[port->id].txdone);
 
-	if (!port->chan_open_count && port->plat->close)
-		port->plat->close(port->id, dev);
+	if (!port->chan_open_count)
+		hss_port_close(port);
 	spin_unlock_irqrestore(&npe_lock, flags);
 
 	destroy_hdlc_queues(port);
@@ -2034,13 +2061,10 @@ static int hss_chan_open(struct inode *inode, struct file *file)
 	clear_bit(RX_ERROR_BIT, &chan_dev->errors_bitmap);
 
 	if (!port->chan_open_count && !port->hdlc_open) {
-		if (port->plat->open)
-			if ((err = port->plat->open(port->id, port->netdev,
-						    hss_hdlc_set_carrier)))
-				goto out;
+		if ((err = hss_port_open(port)))
+			goto out;
 		if ((err = hss_prepare_chan(port))) {
-			if (port->plat->close)
-				port->plat->close(port->id, port->netdev);
+			hss_port_close(port);
 			goto out;
 		}
 	}
@@ -2068,8 +2092,7 @@ static int hss_chan_release(struct inode *inode, struct file *file)
 	if (!--chan_dev->open_count) {
 		if (!--port->chan_open_count && !port->hdlc_open) {
 			hss_shutdown_chan(port);
-			if (port->plat->close)
-				port->plat->close(port->id, port->netdev);
+			hss_port_close(port);
 		} else {
 			hss_chan_stop(port);
 			hss_config(port);
