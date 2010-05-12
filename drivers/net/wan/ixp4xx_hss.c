@@ -1990,6 +1990,8 @@ void hss_shutdown_chan(struct port *port)
 			 chan_rx_buf_len(port), DMA_FROM_DEVICE);
 	kfree(port->chan_buf);
 	port->chan_buf = NULL;
+	while (qmgr_get_entry(queue_ids[port->id].chan))
+		; /* drain all entries */
 	qmgr_release_queue(queue_ids[port->id].chan);
 }
 
