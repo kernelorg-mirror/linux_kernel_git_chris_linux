@@ -249,11 +249,17 @@ static int hss_set_clock(int port, unsigned int clock_type)
 	}
 }
 
+static int hss_carrier(int port)
+{
+	int i;
+	gpio_line_get(port ? GPIO_HSS1_DCD_N : GPIO_HSS0_DCD_N, &i);
+	return !i;		/* inverted */
+}
+
 static irqreturn_t hss_dcd_irq(int irq, void *pdev)
 {
-	int i, port = (irq == IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N));
-	gpio_line_get(port ? GPIO_HSS1_DCD_N : GPIO_HSS0_DCD_N, &i);
-	set_carrier_cb_tab[port](pdev, !i);
+	int port = (irq == IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N));
+	set_carrier_cb_tab[port](pdev, hss_carrier(port));
 	return IRQ_HANDLED;
 }
 
@@ -261,22 +267,19 @@ static irqreturn_t hss_dcd_irq(int irq, void *pdev)
 static int hss_open(int port, void *pdev,
 		    void (*set_carrier_cb)(void *pdev, int carrier))
 {
-	int i, irq;
+	int irq, err;
 
 	if (!port)
 		irq = IXP4XX_GPIO_IRQ(GPIO_HSS0_DCD_N);
 	else
 		irq = IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N);
 
-	gpio_line_get(port ? GPIO_HSS1_DCD_N : GPIO_HSS0_DCD_N, &i);
-	set_carrier_cb(pdev, !i);
-
 	set_carrier_cb_tab[!!port] = set_carrier_cb;
 
-	if ((i = request_irq(irq, hss_dcd_irq, 0, "IXP4xx HSS", pdev)) != 0) {
-		printk(KERN_ERR "ixp4xx_hss: failed to request IRQ%i (%i)\n",
-		       irq, i);
-		return i;
+	err = request_irq(irq, hss_dcd_irq, 0, "IXP4xx HSS", pdev);
+	if (err) {
+		printk(KERN_ERR "ixp4xx_hss: failed to request IRQ%i (%i)\n", irq, err);
+		return err;
 	}
 
 	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 0);
@@ -394,11 +397,13 @@ static struct hss_plat_info hss_plat[] = {
 		.set_clock	= hss_set_clock,
 		.open		= hss_open,
 		.close		= hss_close,
+		.get_carrier	= hss_carrier,
 		.txreadyq	= 34,
 	}, {
 		.set_clock	= hss_set_clock,
 		.open		= hss_open,
 		.close		= hss_close,
+		.get_carrier	= hss_carrier,
 		.txreadyq	= 35,
 	}
 };
