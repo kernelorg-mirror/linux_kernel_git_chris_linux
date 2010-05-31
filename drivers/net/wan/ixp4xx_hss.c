@@ -605,6 +605,9 @@ static void hss_config_lut(struct port *port)
 	msg.data8a = chan_count;
 	hss_npe_send(port, &msg, "CHAN_NUM_CHANS_WRITE");
 
+	dma_sync_single_for_cpu(port->dev, port->chan_tx_buf_phys,
+				chan_tx_buf_len(port) + chan_tx_lists_len(port),
+				DMA_TO_DEVICE);
 	/* don't leak data */
 	// FIXME memset(chan_tx_buf(port), 0, CHAN_TX_FRAMES * chan_count);
 	if (port->mode == MODE_G704) /* G.704 PCM-31 sync pattern */
@@ -1833,10 +1836,8 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 	if (port->sync_counter == 1)
 		return;
 
-	dma_sync_single_for_device(port->dev, port->chan_rx_buf_phys,
-				   chan_rx_buf_len(port)/*CHAN_RX_FRAMES*/, DMA_FROM_DEVICE);
 	dma_sync_single_for_cpu(port->dev, port->chan_rx_buf_phys,
-				chan_rx_buf_len(port)/*CHAN_RX_FRAMES*/, DMA_FROM_DEVICE);
+				CHAN_RX_FRAMES, DMA_FROM_DEVICE);
 
 	/* check if aligned first */
 	for (frame = 0; frame < CHAN_RX_TRIGGER; frame += 2) {
@@ -1859,7 +1860,7 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 
 	if (aligned) {
 		if (port->aligned)
-			return; /* no change */
+			goto out; /* no change */
 		if (printk_ratelimit())
 			printk(KERN_INFO "HSS-%i: synchronized at %u\n", port->id,
 			       port->frame_sync_offset);
@@ -1870,11 +1871,11 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 		wake_up_interruptible(&port->chan_tx_waitq);
 		atomic_inc(&port->chan_rx_irq_number);
 		wake_up_interruptible(&port->chan_rx_waitq);
-		return;
+		goto out;
 	}
 
 	if (port->sync_counter < 4)
-		return;
+		goto out;
 
 	/* not aligned */
 	if (port->aligned && printk_ratelimit()) {
@@ -1929,11 +1930,14 @@ static void g704_rx_framer(struct port *port, unsigned int offset)
 #endif
 
 	if (!bit)
-		return; /* possible change in sync frame order */
+		goto out; /* possible change in sync frame order */
 
 	hss_config_main(port);
 	hss_config_load(port);
 	port->sync_counter = 0;
+out:
+	dma_sync_single_for_device(port->dev, port->chan_rx_buf_phys,
+				   CHAN_RX_FRAMES, DMA_FROM_DEVICE);
 }
 
 static void chan_process_tx_irq(struct chan_device *chan_dev, int offset)
