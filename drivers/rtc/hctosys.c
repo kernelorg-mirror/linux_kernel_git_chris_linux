@@ -29,8 +29,11 @@ static int __init rtc_hctosys(void)
 	struct rtc_device *rtc = rtc_class_open(CONFIG_RTC_HCTOSYS_DEVICE);
 
 	if (rtc == NULL) {
+#if 0
+		/* don't print this, many routers have no RTC */
 		printk("%s: unable to open rtc device (%s)\n",
 			__FILE__, CONFIG_RTC_HCTOSYS_DEVICE);
+#endif
 		return -ENODEV;
 	}
 
