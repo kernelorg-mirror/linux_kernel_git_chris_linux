@@ -224,7 +224,11 @@ static void output_control(void)
 
 /* HSS */
 
-static void (*set_carrier_cb_tab[2])(void *pdev, int carrier);
+static struct hss {
+	spinlock_t lock;
+	void (*set_carrier_cb)(void *pdev, int carrier);
+	void *cb_pdev;
+}hss_tab[2];
 
 static int hss_set_clock(int port, unsigned int clock_type)
 {
@@ -259,46 +263,63 @@ static int hss_carrier(int port)
 static irqreturn_t hss_dcd_irq(int irq, void *pdev)
 {
 	int port = (irq == IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N));
-	set_carrier_cb_tab[port](pdev, hss_carrier(port));
+	struct hss *hss = pdev;
+
+	spin_lock(&hss->lock);
+	if (hss->set_carrier_cb)
+		hss->set_carrier_cb(hss->cb_pdev, hss_carrier(port));
+	spin_unlock(&hss->lock);
+
 	return IRQ_HANDLED;
 }
 
+static void hss_open(int port, void *pdev, void (*set_carrier_cb)(void *pdev, int carrier))
+{
+	unsigned long flags;
 
-static int hss_open(int port, void *pdev,
-		    void (*set_carrier_cb)(void *pdev, int carrier))
+	spin_lock_irqsave(&hss_tab[port].lock, flags);
+	hss_tab[!!port].set_carrier_cb = set_carrier_cb;
+	hss_tab[!!port].cb_pdev = pdev;
+
+	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 0);
+	gpio_line_set(port ? GPIO_HSS1_RTS_N : GPIO_HSS0_RTS_N, 0);
+	spin_unlock_irqrestore(&hss_tab[port].lock, flags);
+
+	output_control();
+}
+
+static void hss_close(int port, void *pdev)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&hss_tab[port].lock, flags);
+	hss_tab[!!port].set_carrier_cb = NULL;
+
+	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 1);
+	gpio_line_set(port ? GPIO_HSS1_RTS_N : GPIO_HSS0_RTS_N, 1);
+	spin_unlock_irqrestore(&hss_tab[port].lock, flags);
+
+	output_control();
+}
+
+static int hss_setup(int port)
 {
 	int irq, err;
+
+	spin_lock_init(&hss_tab[port].lock);
 
 	if (!port)
 		irq = IXP4XX_GPIO_IRQ(GPIO_HSS0_DCD_N);
 	else
 		irq = IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N);
 
-	set_carrier_cb_tab[!!port] = set_carrier_cb;
-
-	err = request_irq(irq, hss_dcd_irq, 0, "IXP4xx HSS", pdev);
+	err = request_irq(irq, hss_dcd_irq, 0, "IXP4xx HSS", &hss_tab[port]);
 	if (err) {
 		printk(KERN_ERR "ixp4xx_hss: failed to request IRQ%i (%i)\n", irq, err);
 		return err;
 	}
-
-	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 0);
-	output_control();
-	gpio_line_set(port ? GPIO_HSS1_RTS_N : GPIO_HSS0_RTS_N, 0);
 	return 0;
 }
-
-static void hss_close(int port, void *pdev)
-{
-	free_irq(port ? IXP4XX_GPIO_IRQ(GPIO_HSS1_DCD_N) :
-		 IXP4XX_GPIO_IRQ(GPIO_HSS0_DCD_N), pdev);
-	set_carrier_cb_tab[!!port] = NULL; /* catch bugs */
-
-	set_control(port ? CONTROL_HSS1_DTR_N : CONTROL_HSS0_DTR_N, 1);
-	output_control();
-	gpio_line_set(port ? GPIO_HSS1_RTS_N : GPIO_HSS0_RTS_N, 1);
-}
-
 
 /* Flash memory */
 static struct flash_platform_data flash_data = {
@@ -494,34 +515,6 @@ static void __init gmlr_init(void)
 		iounmap(flash);
 	}
 
-	switch (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1)) {
-	case CFG_HW_HAS_UART0:
-		memset(&uart_data[1], 0, sizeof(uart_data[1]));
-		device_uarts.num_resources = 1;
-		break;
-
-	case CFG_HW_HAS_UART1:
-		device_uarts.dev.platform_data = &uart_data[1];
-		device_uarts.resource = &uart_resources[1];
-		device_uarts.num_resources = 1;
-		break;
-	}
-	if (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1))
-		device_tab[devices++] = &device_uarts; /* max index 1 */
-
-	if (hw_bits & CFG_HW_HAS_ETH0)
-		device_tab[devices++] = &device_eth_tab[0]; /* max index 2 */
-	if (hw_bits & CFG_HW_HAS_ETH1)
-		device_tab[devices++] = &device_eth_tab[1]; /* max index 3 */
-
-	if (hw_bits & CFG_HW_HAS_HSS0)
-		device_tab[devices++] = &device_hss_tab[0]; /* max index 4 */
-	if (hw_bits & CFG_HW_HAS_HSS1)
-		device_tab[devices++] = &device_hss_tab[1]; /* max index 5 */
-
-	if (hw_bits & CFG_HW_HAS_RTC)
-		device_tab[devices++] = &device_rtc; /* max index 6 */
-
 	gpio_line_config(GPIO_HSS0_RTS_N, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS1_RTS_N, IXP4XX_GPIO_OUT);
 	gpio_line_config(GPIO_HSS0_DCD_N, IXP4XX_GPIO_IN);
@@ -544,6 +537,35 @@ static void __init gmlr_init(void)
 	output_control_nolock();
 
 	msleep(100);	      /* Wait for PCI devices to initialize */
+
+	switch (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1)) {
+	case CFG_HW_HAS_UART0:
+		memset(&uart_data[1], 0, sizeof(uart_data[1]));
+		device_uarts.num_resources = 1;
+		break;
+
+	case CFG_HW_HAS_UART1:
+		device_uarts.dev.platform_data = &uart_data[1];
+		device_uarts.resource = &uart_resources[1];
+		device_uarts.num_resources = 1;
+		break;
+	}
+	if (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1))
+		device_tab[devices++] = &device_uarts; /* max index 1 */
+
+	if (hw_bits & CFG_HW_HAS_ETH0)
+		device_tab[devices++] = &device_eth_tab[0]; /* max index 2 */
+	if (hw_bits & CFG_HW_HAS_ETH1)
+		device_tab[devices++] = &device_eth_tab[1]; /* max index 3 */
+
+	if ((hw_bits & CFG_HW_HAS_HSS0) && !hss_setup(0))
+		device_tab[devices++] = &device_hss_tab[0]; /* max index 4 */
+
+	if ((hw_bits & CFG_HW_HAS_HSS1) && !hss_setup(1))
+		device_tab[devices++] = &device_hss_tab[1]; /* max index 5 */
+
+	if (hw_bits & CFG_HW_HAS_RTC)
+		device_tab[devices++] = &device_rtc; /* max index 6 */
 
 	flash_resource.start = IXP4XX_EXP_BUS_BASE(0);
 	flash_resource.end = IXP4XX_EXP_BUS_BASE(0) + ixp4xx_exp_bus_size - 1;
