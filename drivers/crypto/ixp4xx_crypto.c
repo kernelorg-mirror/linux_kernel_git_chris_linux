@@ -111,6 +111,11 @@ struct buffer_desc {
 	enum dma_data_direction dir;
 };
 
+struct crypt_info {
+	__be32 cfg;
+	u8 data[0];
+};
+
 struct crypt_ctl {
 #ifdef __ARMEB__
 	u8 mode;		/* NPE_OP_*  operation mode */
@@ -169,7 +174,7 @@ struct ix_hash_algo {
 };
 
 struct ix_sa_dir {
-	unsigned char *npe_ctx;
+	struct crypt_info *npe_ctx;
 	dma_addr_t npe_ctx_phys;
 	int npe_ctx_idx;
 	u8 npe_mode;
@@ -398,7 +403,7 @@ static void one_packet(dma_addr_t phys)
 		break;
 	case CTL_FLAG_GEN_REVAES:
 		ctx = crypto_tfm_ctx(crypt->data.tfm);
-		*(__be32 *)ctx->decrypt.npe_ctx &= cpu_to_be32(~CFG_CIPH_ENCR);
+		ctx->decrypt.npe_ctx->cfg &= cpu_to_be32(~CFG_CIPH_ENCR);
 		if (atomic_dec_and_test(&ctx->configuring))
 			complete(&ctx->completion);
 		break;
@@ -641,7 +646,7 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 		const u8 *key, int key_len, unsigned digest_len)
 {
 	u32 itarget, otarget, npe_ctx_addr;
-	unsigned char *cinfo;
+	struct crypt_info *cinfo;
 	int init_len, ret = 0;
 	u32 cfgword;
 	struct ix_sa_dir *dir;
@@ -650,6 +655,7 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 
 	dir = encrypt ? &ctx->encrypt : &ctx->decrypt;
 	cinfo = dir->npe_ctx + dir->npe_ctx_idx;
+	npe_ctx_addr = dir->npe_ctx_phys + dir->npe_ctx_idx;
 	algo = ix_hash(tfm);
 
 	/* write cfg word to cryptinfo */
@@ -657,18 +663,14 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 #ifndef __ARMEB__
 	cfgword ^= 0xAA000000; /* change the "byte swap" flags */
 #endif
-	*(__be32 *)cinfo = cpu_to_be32(cfgword);
-	cinfo += sizeof(cfgword);
+	cinfo->cfg = cpu_to_be32(cfgword);
 
 	/* write ICV to cryptinfo */
-	memcpy(cinfo, algo->icv, digest_len);
-	cinfo += digest_len;
+	memcpy(cinfo->data, algo->icv, digest_len);
 
-	itarget = dir->npe_ctx_phys + dir->npe_ctx_idx
-				+ sizeof(algo->cfgword);
+	itarget = npe_ctx_addr + sizeof(*cinfo);
 	otarget = itarget + digest_len;
-	init_len = cinfo - (dir->npe_ctx + dir->npe_ctx_idx);
-	npe_ctx_addr = dir->npe_ctx_phys + dir->npe_ctx_idx;
+	init_len = sizeof(*cinfo) + digest_len;
 
 	dir->npe_ctx_idx += init_len;
 	dir->npe_mode |= NPE_OP_HASH_ENABLE;
@@ -693,14 +695,14 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 	crypt = get_crypt_desc_emerg();
 	if (!crypt)
 		return -EAGAIN;
-	*(__be32 *)dir->npe_ctx |= cpu_to_be32(CFG_CIPH_ENCR);
+	dir->npe_ctx->cfg |= cpu_to_be32(CFG_CIPH_ENCR);
 
 	crypt->data.tfm = tfm;
 	crypt->crypt_offs = 0;
 	crypt->crypt_len = AES_BLOCK128;
 	crypt->src_buf = 0;
 	crypt->crypto_ctx = dir->npe_ctx_phys;
-	crypt->icv_rev_aes = dir->npe_ctx_phys + sizeof(u32);
+	crypt->icv_rev_aes = dir->npe_ctx_phys + sizeof(*dir->npe_ctx);
 	crypt->mode = NPE_OP_ENC_GEN_KEY;
 	crypt->init_len = dir->npe_ctx_idx;
 	crypt->ctl_flags |= CTL_FLAG_GEN_REVAES;
@@ -714,7 +716,7 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 		const u8 *key, int key_len)
 {
-	u8 *cinfo;
+	struct crypt_info *cinfo;
 	u32 cipher_cfg;
 	u32 keylen_cfg = 0;
 	struct ix_sa_dir *dir;
@@ -753,14 +755,13 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 			*flags |= CRYPTO_TFM_RES_WEAK_KEY;
 	}
 	/* write cfg word to cryptinfo */
-	*(__be32 *)cinfo = cpu_to_be32(cipher_cfg);
-	cinfo += sizeof(cipher_cfg);
+	cinfo->cfg = cpu_to_be32(cipher_cfg);
 
 	/* write cipher key to cryptinfo */
-	memcpy(cinfo, key, key_len);
+	memcpy(cinfo->data, key, key_len);
 	/* NPE wants keylen set to DES3_EDE_KEY_SIZE even for single DES */
 	if (key_len < DES3_EDE_KEY_SIZE && !(cipher_cfg & CFG_MOD_AES)) {
-		memset(cinfo + key_len, 0, DES3_EDE_KEY_SIZE - key_len);
+		memset(cinfo->data + key_len, 0, DES3_EDE_KEY_SIZE - key_len);
 		key_len = DES3_EDE_KEY_SIZE;
 	}
 	dir->npe_ctx_idx = sizeof(cipher_cfg) + key_len;
