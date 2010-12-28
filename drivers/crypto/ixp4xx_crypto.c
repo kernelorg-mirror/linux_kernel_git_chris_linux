@@ -238,12 +238,12 @@ static struct device *dev = &pseudo_dev.dev;
 
 static inline dma_addr_t crypt_virt2phys(struct crypt_ctl *virt)
 {
-	return crypt_phys + (virt - crypt_virt) * sizeof(struct crypt_ctl);
+	return crypt_phys + (void*)virt - (void*)crypt_virt;
 }
 
 static inline struct crypt_ctl *crypt_phys2virt(dma_addr_t phys)
 {
-	return crypt_virt + (phys - crypt_phys) / sizeof(struct crypt_ctl);
+	return (void*)crypt_virt + phys - crypt_phys;
 }
 
 static inline u32 cipher_cfg_enc(struct crypto_tfm *tfm)
