@@ -80,6 +80,8 @@ config MACH_IXDP465
 
 config MACH_GORAMO_MLR
 	bool "GORAMO Multi Link Router"
+	select I2C
+	select I2C_ALGOBIT
 	help
 	  Say 'Y' here if you want your kernel to support GORAMO
 	  MultiLink router.
@@ -140,6 +142,14 @@ config MACH_FSG
 	  FSG-3 device. For more information on this platform,
 	  see http://www.nslu2-linux.org/wiki/FSG3/HomePage
 
+config MACH_ARCOM_VULCAN
+	bool
+	prompt "Arcom/Eurotech Vulcan"
+	select PCI
+	help
+	  Say 'Y' here if you want your kernel to support Arcom's
+	  Vulcan board.
+
 #
 # Certain registers and IRQs are only enabled if supporting IXP465 CPUs
 #
@@ -173,6 +183,20 @@ config MACH_GTWX5715
 
 comment "IXP4xx Options"
 
+config IXP4XX_SUPPORT_425A0
+	bool "Support early IXP42x processors (stepping A0)"
+	default y
+	help
+	  Early IXP425 (and IXC1100) processors are missing several hardware
+	  features and require many work-arounds. With this option you will
+	  be able to run Linux on those old processors, at the cost of increased
+	  code size. Some features like hardware watchdog timer will only be
+	  available on IXP42x stepping B0 or later processors.
+	  IXP43x, IXP45x and IXP46x CPUs are not affected by this option.
+
+	  If you don't plan to use IXP425 stepping A0 CPUs, say "N".
+	  If unsure, say "Y".
+
 config IXP4XX_INDIRECT_PCI
 	bool "Use indirect PCI memory access"
 	depends on PCI
@@ -198,6 +222,10 @@ config IXP4XX_INDIRECT_PCI
 	  By default, the direct method is used. Choose this option if you
 	  need to use the indirect method instead. If you don't know
 	  what you need, leave this option unselected.
+
+config ZONE_DMA_ALL_KERNEL
+	bool
+	default y
 
 config IXP4XX_QMGR
 	tristate "IXP4xx Queue Manager support"
