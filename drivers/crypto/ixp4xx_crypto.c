@@ -126,7 +126,7 @@ struct buffer_desc {
 };
 
 struct crypt_info {
-	__be32 cfg;
+	u32 cfg;
 	u8 data[0];
 };
 
@@ -417,7 +417,7 @@ static void one_packet(dma_addr_t phys)
 		break;
 	case CTL_FLAG_GEN_REVAES:
 		ctx = crypto_tfm_ctx(crypt->data.tfm);
-		ctx->decrypt.npe_ctx->cfg &= cpu_to_be32(~CFG_CIPH_ENCR);
+		ctx->decrypt.npe_ctx->cfg &= ~CFG_CIPH_ENCR;
 		if (atomic_dec_and_test(&ctx->configuring))
 			complete(&ctx->completion);
 		break;
@@ -677,7 +677,7 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 #ifndef __ARMEB__
 	cfgword ^= CFG_AUTH_SWAP; /* change the "byte swap" flags */
 #endif
-	cinfo->cfg = cpu_to_be32(cfgword);
+	cinfo->cfg = cfgword;
 
 	/* write ICV to cryptinfo */
 	memcpy(cinfo->data, algo->icv, digest_len);
@@ -709,7 +709,7 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 	crypt = get_crypt_desc_emerg();
 	if (!crypt)
 		return -EAGAIN;
-	dir->npe_ctx->cfg |= cpu_to_be32(CFG_CIPH_ENCR);
+	dir->npe_ctx->cfg |= CFG_CIPH_ENCR;
 
 	crypt->data.tfm = tfm;
 	crypt->crypt_offs = 0;
@@ -774,7 +774,7 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 #endif
 
 	/* write cfg word to cryptinfo */
-	cinfo->cfg = cpu_to_be32(cipher_cfg);
+	cinfo->cfg = cipher_cfg;
 
 	/* write cipher key to cryptinfo */
 	memcpy(cinfo->data, key, key_len);
