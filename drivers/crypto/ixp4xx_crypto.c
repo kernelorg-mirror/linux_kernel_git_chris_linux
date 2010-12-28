@@ -50,27 +50,27 @@
 #define NPE_OP_HASH_GEN_ICV  0x50
 #define NPE_OP_ENC_GEN_KEY   0xc9
 
-#define MOD_ECB     0x0000
-#define MOD_CTR     0x1000
-#define MOD_CBC_ENC 0x2000
-#define MOD_CBC_DEC 0x3000
-#define MOD_CCM_ENC 0x4000
-#define MOD_CCM_DEC 0x5000
+#define CFG_MOD_ECB     0x0000
+#define CFG_MOD_CTR     0x1000
+#define CFG_MOD_CBC_ENC 0x2000
+#define CFG_MOD_CBC_DEC 0x3000
+#define CFG_MOD_CCM_ENC 0x4000
+#define CFG_MOD_CCM_DEC 0x5000
 
-#define KEYLEN_128  4
-#define KEYLEN_192  6
-#define KEYLEN_256  8
+#define CFG_KEYLEN_128  4
+#define CFG_KEYLEN_192  6
+#define CFG_KEYLEN_256  8
 
-#define CIPH_DECR   0x0000
-#define CIPH_ENCR   0x0400
+#define CFG_CIPH_DECR   0x0000
+#define CFG_CIPH_ENCR   0x0400
 
-#define MOD_DES     0x0000
-#define MOD_TDEA2   0x0100
-#define MOD_3DES    0x0200
-#define MOD_AES     0x0800
-#define MOD_AES128  (0x0800 | KEYLEN_128)
-#define MOD_AES192  (0x0900 | KEYLEN_192)
-#define MOD_AES256  (0x0a00 | KEYLEN_256)
+#define CFG_MOD_DES     0x0000
+#define CFG_MOD_TDEA2   0x0100
+#define CFG_MOD_3DES    0x0200
+#define CFG_MOD_AES     0x0800
+#define CFG_MOD_AES128  (0x0800 | CFG_KEYLEN_128)
+#define CFG_MOD_AES192  (0x0900 | CFG_KEYLEN_192)
+#define CFG_MOD_AES256  (0x0a00 | CFG_KEYLEN_256)
 
 #define MAX_IVLEN   16
 #define NPE_ID      2  /* NPE C */
@@ -398,7 +398,7 @@ static void one_packet(dma_addr_t phys)
 		break;
 	case CTL_FLAG_GEN_REVAES:
 		ctx = crypto_tfm_ctx(crypt->data.tfm);
-		*(__be32 *)ctx->decrypt.npe_ctx &= cpu_to_be32(~CIPH_ENCR);
+		*(__be32 *)ctx->decrypt.npe_ctx &= cpu_to_be32(~CFG_CIPH_ENCR);
 		if (atomic_dec_and_test(&ctx->configuring))
 			complete(&ctx->completion);
 		break;
@@ -693,7 +693,7 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 	crypt = get_crypt_desc_emerg();
 	if (!crypt)
 		return -EAGAIN;
-	*(__be32 *)dir->npe_ctx |= cpu_to_be32(CIPH_ENCR);
+	*(__be32 *)dir->npe_ctx |= cpu_to_be32(CFG_CIPH_ENCR);
 
 	crypt->data.tfm = tfm;
 	crypt->crypt_offs = 0;
@@ -730,17 +730,17 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 	} else
 		cipher_cfg = cipher_cfg_dec(tfm);
 
-	if (cipher_cfg & MOD_AES) {
+	if (cipher_cfg & CFG_MOD_AES) {
 		switch (key_len) {
-		case 16: keylen_cfg = MOD_AES128; break;
-		case 24: keylen_cfg = MOD_AES192; break;
-		case 32: keylen_cfg = MOD_AES256; break;
+		case 16: keylen_cfg = CFG_MOD_AES128; break;
+		case 24: keylen_cfg = CFG_MOD_AES192; break;
+		case 32: keylen_cfg = CFG_MOD_AES256; break;
 		default:
 			*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 			return -EINVAL;
 		}
 		cipher_cfg |= keylen_cfg;
-	} else if (cipher_cfg & MOD_3DES) {
+	} else if (cipher_cfg & CFG_MOD_3DES) {
 		const u32 *K = (const u32 *)key;
 		if (unlikely(!((K[0] ^ K[2]) | (K[1] ^ K[3])) ||
 			     !((K[2] ^ K[4]) | (K[3] ^ K[5])))) {
@@ -759,13 +759,13 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 	/* write cipher key to cryptinfo */
 	memcpy(cinfo, key, key_len);
 	/* NPE wants keylen set to DES3_EDE_KEY_SIZE even for single DES */
-	if (key_len < DES3_EDE_KEY_SIZE && !(cipher_cfg & MOD_AES)) {
+	if (key_len < DES3_EDE_KEY_SIZE && !(cipher_cfg & CFG_MOD_AES)) {
 		memset(cinfo + key_len, 0, DES3_EDE_KEY_SIZE - key_len);
 		key_len = DES3_EDE_KEY_SIZE;
 	}
 	dir->npe_ctx_idx = sizeof(cipher_cfg) + key_len;
 	dir->npe_mode |= NPE_OP_CRYPT_ENABLE;
-	if ((cipher_cfg & MOD_AES) && !encrypt)
+	if ((cipher_cfg & CFG_MOD_AES) && !encrypt)
 		return gen_rev_aes_key(tfm);
 	return 0;
 }
@@ -1210,8 +1210,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 
 }, {
 	.crypto	= {
@@ -1223,8 +1223,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_DES | MOD_ECB | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_DES | MOD_ECB | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_DES | CFG_MOD_ECB | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_DES | CFG_MOD_ECB | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "cbc(des3_ede)",
@@ -1237,8 +1237,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_3DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_3DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_3DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_3DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "ecb(des3_ede)",
@@ -1249,8 +1249,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_3DES | MOD_ECB | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_3DES | MOD_ECB | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_3DES | CFG_MOD_ECB | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_3DES | CFG_MOD_ECB | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "cbc(aes)",
@@ -1263,8 +1263,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_CBC_ENC,
-	.cfg_dec = CIPH_DECR | MOD_AES | MOD_CBC_DEC,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CBC_ENC,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_AES | CFG_MOD_CBC_DEC,
 }, {
 	.crypto	= {
 		.cra_name	= "ecb(aes)",
@@ -1275,8 +1275,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_ECB,
-	.cfg_dec = CIPH_DECR | MOD_AES | MOD_ECB,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_ECB,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_AES | CFG_MOD_ECB,
 }, {
 	.crypto	= {
 		.cra_name	= "ctr(aes)",
@@ -1289,8 +1289,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			}
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_CTR,
-	.cfg_dec = CIPH_ENCR | MOD_AES | MOD_CTR,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CTR,
+	.cfg_dec = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CTR,
 }, {
 	.crypto	= {
 		.cra_name	= "rfc3686(ctr(aes))",
@@ -1305,8 +1305,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 			.decrypt	= ablk_rfc3686_crypt }
 		}
 	},
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_CTR,
-	.cfg_dec = CIPH_ENCR | MOD_AES | MOD_CTR,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CTR,
+	.cfg_dec = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CTR,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(md5),cbc(des))",
@@ -1318,8 +1318,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_md5,
-	.cfg_enc = CIPH_ENCR | MOD_DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(md5),cbc(des3_ede))",
@@ -1331,8 +1331,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_md5,
-	.cfg_enc = CIPH_ENCR | MOD_3DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_3DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_3DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_3DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(sha1),cbc(des))",
@@ -1344,8 +1344,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_sha1,
-	.cfg_enc = CIPH_ENCR | MOD_DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(sha1),cbc(des3_ede))",
@@ -1357,8 +1357,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_sha1,
-	.cfg_enc = CIPH_ENCR | MOD_3DES | MOD_CBC_ENC | KEYLEN_192,
-	.cfg_dec = CIPH_DECR | MOD_3DES | MOD_CBC_DEC | KEYLEN_192,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_3DES | CFG_MOD_CBC_ENC | CFG_KEYLEN_192,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_3DES | CFG_MOD_CBC_DEC | CFG_KEYLEN_192,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(md5),cbc(aes))",
@@ -1370,8 +1370,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_md5,
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_CBC_ENC,
-	.cfg_dec = CIPH_DECR | MOD_AES | MOD_CBC_DEC,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CBC_ENC,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_AES | CFG_MOD_CBC_DEC,
 }, {
 	.crypto	= {
 		.cra_name	= "authenc(hmac(sha1),cbc(aes))",
@@ -1383,8 +1383,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 		}
 	},
 	.hash = &hash_alg_sha1,
-	.cfg_enc = CIPH_ENCR | MOD_AES | MOD_CBC_ENC,
-	.cfg_dec = CIPH_DECR | MOD_AES | MOD_CBC_DEC,
+	.cfg_enc = CFG_CIPH_ENCR | CFG_MOD_AES | CFG_MOD_CBC_ENC,
+	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_AES | CFG_MOD_CBC_DEC,
 } };
 
 #define IXP_POSTFIX "-ixp4xx"
@@ -1410,7 +1410,7 @@ static int __init ixp_module_init(void)
 		if (snprintf(cra->cra_driver_name, CRYPTO_MAX_ALG_NAME,
 			"%s"IXP_POSTFIX, cra->cra_name) >= CRYPTO_MAX_ALG_NAME)
 			continue;
-		if (!support_aes && (ixp4xx_algos[i].cfg_enc & MOD_AES))
+		if (!support_aes && (ixp4xx_algos[i].cfg_enc & CFG_MOD_AES))
 			continue;
 		if (!ixp4xx_algos[i].hash) {
 			/* block ciphers */
