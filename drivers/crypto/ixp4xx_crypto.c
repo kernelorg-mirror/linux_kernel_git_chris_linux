@@ -57,7 +57,7 @@
 #define CFG_MOD_CCM_ENC 0x4000
 #define CFG_MOD_CCM_DEC 0x5000
 
-#define CFG_KEYLEN_128  4
+#define CFG_KEYLEN_128  4 /* dwords */
 #define CFG_KEYLEN_192  6
 #define CFG_KEYLEN_256  8
 
@@ -177,7 +177,7 @@ struct ix_sa_dir {
 	struct crypt_info *npe_ctx;
 	dma_addr_t npe_ctx_phys;
 	int npe_ctx_idx;
-	u8 npe_mode;
+	u8 mode;
 };
 
 struct ixp_ctx {
@@ -535,7 +535,7 @@ static void reset_sa_dir(struct ix_sa_dir *dir)
 {
 	memset(dir->npe_ctx, 0, NPE_CTX_LEN);
 	dir->npe_ctx_idx = 0;
-	dir->npe_mode = 0;
+	dir->mode = 0;
 }
 
 static int init_sa_dir(struct ix_sa_dir *dir)
@@ -673,10 +673,10 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 	init_len = sizeof(*cinfo) + digest_len;
 
 	dir->npe_ctx_idx += init_len;
-	dir->npe_mode |= NPE_OP_HASH_ENABLE;
+	dir->mode |= NPE_OP_HASH_ENABLE;
 
 	if (!encrypt)
-		dir->npe_mode |= NPE_OP_HASH_VERIFY;
+		dir->mode |= NPE_OP_HASH_VERIFY;
 
 	ret = register_chain_var(tfm, HMAC_OPAD_VALUE, otarget,
 			init_len, npe_ctx_addr, key, key_len);
@@ -718,30 +718,30 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 {
 	struct crypt_info *cinfo;
 	u32 cipher_cfg;
-	u32 keylen_cfg = 0;
 	struct ix_sa_dir *dir;
 	struct ixp_ctx *ctx = crypto_tfm_ctx(tfm);
 	u32 *flags = &tfm->crt_flags;
 
-	dir = encrypt ? &ctx->encrypt : &ctx->decrypt;
-	cinfo = dir->npe_ctx;
-
 	if (encrypt) {
 		cipher_cfg = cipher_cfg_enc(tfm);
-		dir->npe_mode |= NPE_OP_CRYPT_ENCRYPT;
-	} else
+		dir = &ctx->encrypt;
+		dir->mode |= NPE_OP_CRYPT_ENCRYPT;
+	} else {
 		cipher_cfg = cipher_cfg_dec(tfm);
+		dir = &ctx->decrypt;
+	}
+
+	cinfo = dir->npe_ctx;
 
 	if (cipher_cfg & CFG_MOD_AES) {
 		switch (key_len) {
-		case 16: keylen_cfg = CFG_MOD_AES128; break;
-		case 24: keylen_cfg = CFG_MOD_AES192; break;
-		case 32: keylen_cfg = CFG_MOD_AES256; break;
+		case 16: cipher_cfg |= CFG_MOD_AES128; break;
+		case 24: cipher_cfg |= CFG_MOD_AES192; break;
+		case 32: cipher_cfg |= CFG_MOD_AES256; break;
 		default:
 			*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 			return -EINVAL;
 		}
-		cipher_cfg |= keylen_cfg;
 	} else if (cipher_cfg & CFG_MOD_3DES) {
 		const u32 *K = (const u32 *)key;
 		if (unlikely(!((K[0] ^ K[2]) | (K[1] ^ K[3])) ||
@@ -765,7 +765,7 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 		key_len = DES3_EDE_KEY_SIZE;
 	}
 	dir->npe_ctx_idx = sizeof(cipher_cfg) + key_len;
-	dir->npe_mode |= NPE_OP_CRYPT_ENABLE;
+	dir->mode |= NPE_OP_CRYPT_ENABLE;
 	if ((cipher_cfg & CFG_MOD_AES) && !encrypt)
 		return gen_rev_aes_key(tfm);
 	return 0;
@@ -816,8 +816,8 @@ static int ablk_setkey(struct crypto_ablkcipher *tfm, const u8 *key,
 	reset_sa_dir(&ctx->encrypt);
 	reset_sa_dir(&ctx->decrypt);
 
-	ctx->encrypt.npe_mode = NPE_OP_HMAC_DISABLE;
-	ctx->decrypt.npe_mode = NPE_OP_HMAC_DISABLE;
+	ctx->encrypt.mode = NPE_OP_HMAC_DISABLE;
+	ctx->decrypt.mode = NPE_OP_HMAC_DISABLE;
 
 	ret = setup_cipher(&tfm->base, 0, key, key_len);
 	if (ret)
@@ -881,7 +881,7 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 
 	crypt->data.ablk_req = req;
 	crypt->crypto_ctx = dir->npe_ctx_phys;
-	crypt->mode = dir->npe_mode;
+	crypt->mode = dir->mode;
 	crypt->init_len = dir->npe_ctx_idx;
 
 	crypt->crypt_offs = 0;
@@ -1010,7 +1010,7 @@ static int aead_perform(struct aead_request *req, int encrypt,
 
 	crypt->data.aead_req = req;
 	crypt->crypto_ctx = dir->npe_ctx_phys;
-	crypt->mode = dir->npe_mode;
+	crypt->mode = dir->mode;
 	crypt->init_len = dir->npe_ctx_idx;
 
 	crypt->crypt_offs = cryptoffset;
@@ -1388,10 +1388,8 @@ static struct ixp_alg ixp4xx_algos[] = {
 	.cfg_dec = CFG_CIPH_DECR | CFG_MOD_AES | CFG_MOD_CBC_DEC,
 } };
 
-#define IXP_POSTFIX "-ixp4xx"
 static int __init ixp_module_init(void)
 {
-	int num = ARRAY_SIZE(ixp4xx_algos);
 	int i, err;
 
 	if (platform_device_register(&pseudo_dev))
@@ -1405,13 +1403,13 @@ static int __init ixp_module_init(void)
 		platform_device_unregister(&pseudo_dev);
 		return err;
 	}
-	for (i = 0; i < num; i++) {
+	for (i = 0; i < ARRAY_SIZE(ixp4xx_algos); i++) {
 		struct crypto_alg *cra = &ixp4xx_algos[i].crypto;
 
-		if (snprintf(cra->cra_driver_name, CRYPTO_MAX_ALG_NAME,
-			"%s"IXP_POSTFIX, cra->cra_name) >= CRYPTO_MAX_ALG_NAME)
-			continue;
 		if (!support_aes && (ixp4xx_algos[i].cfg_enc & CFG_MOD_AES))
+			continue;
+		if (snprintf(cra->cra_driver_name, CRYPTO_MAX_ALG_NAME,
+			"%s-ixp4xx", cra->cra_name) >= CRYPTO_MAX_ALG_NAME)
 			continue;
 		if (!ixp4xx_algos[i].hash) {
 			/* block ciphers */
@@ -1455,13 +1453,12 @@ static int __init ixp_module_init(void)
 
 static void __exit ixp_module_exit(void)
 {
-	int num = ARRAY_SIZE(ixp4xx_algos);
 	int i;
 
-	for (i = 0; i < num; i++) {
+	for (i = 0; i < ARRAY_SIZE(ixp4xx_algos); i++)
 		if (ixp4xx_algos[i].registered)
 			crypto_unregister_alg(&ixp4xx_algos[i].crypto);
-	}
+
 	release_ixp_crypto();
 	platform_device_unregister(&pseudo_dev);
 }
