@@ -50,6 +50,20 @@
 #define NPE_OP_HASH_GEN_ICV  0x50
 #define NPE_OP_ENC_GEN_KEY   0xc9
 
+#define CFG_AUTH_DATA_WR_SWAB  0x80000000
+#define CFG_AUTH_DATA_RD_SWAB  0x20000000
+#define CFG_AUTH_HASH_WR_SWAB  0x08000000
+#define CFG_AUTH_HASH_RD_SWAB  0x02000000
+#define CFG_AUTH_SWAP (CFG_AUTH_DATA_WR_SWAB | CFG_AUTH_HASH_WR_SWAB | \
+		       CFG_AUTH_DATA_RD_SWAB | CFG_AUTH_HASH_RD_SWAB)
+
+#define CFG_CRYPT_KEY_WR_SWAB  0x04000000
+#define CFG_CRYPT_KEY_RD_SWAB  0x00800000
+#define CFG_CRYPT_DATA_WR_SWAB 0x00100000
+#define CFG_CRYPT_DATA_RD_SWAB 0x00020000
+#define CFG_CRYPT_SWAP (CFG_CRYPT_KEY_WR_SWAB | CFG_CRYPT_DATA_WR_SWAB | \
+			CFG_CRYPT_KEY_RD_SWAB | CFG_CRYPT_DATA_RD_SWAB)
+
 #define CFG_MOD_ECB     0x0000
 #define CFG_MOD_CTR     0x1000
 #define CFG_MOD_CBC_ENC 0x2000
@@ -204,7 +218,7 @@ struct ixp_alg {
 };
 
 static const struct ix_hash_algo hash_alg_md5 = {
-	.cfgword	= 0xAA010004,
+	.cfgword	= 0x10004 | CFG_AUTH_SWAP, /* LE by default */
 	.icv		= "\x01\x23\x45\x67\x89\xAB\xCD\xEF"
 			  "\xFE\xDC\xBA\x98\x76\x54\x32\x10",
 };
@@ -661,7 +675,7 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 	/* write cfg word to cryptinfo */
 	cfgword = algo->cfgword | (authsize << 6); /* (authsize/4) << 8 */
 #ifndef __ARMEB__
-	cfgword ^= 0xAA000000; /* change the "byte swap" flags */
+	cfgword ^= CFG_AUTH_SWAP; /* change the "byte swap" flags */
 #endif
 	cinfo->cfg = cpu_to_be32(cfgword);
 
@@ -754,6 +768,11 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 		if (des_ekey(tmp, key) == 0)
 			*flags |= CRYPTO_TFM_RES_WEAK_KEY;
 	}
+
+#ifndef __ARMEB__
+	cipher_cfg ^= CFG_CRYPT_SWAP;
+#endif
+
 	/* write cfg word to cryptinfo */
 	cinfo->cfg = cpu_to_be32(cipher_cfg);
 
