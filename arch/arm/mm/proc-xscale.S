@@ -584,36 +584,30 @@ __xscale_setup:
 	orr	r0, r0, #2			@ set the P bit for page table
 	mcr	p15, 0, r0, c1, c0, 1
 
-#define TRAMPOLINE 0x200
-
 	/*
-	 * Create identity mapping for on-chip Queue Manager SRAM to cater for
-	 * the MMU enable.  This identity mapping will be removed by
-	 * paging_init().  We use our current program counter to determine
+	 * Create identity mapping for on-chip Queue Manager SRAM at 0x60002100
+	 * to cater for the MMU enable.  This identity mapping will be removed
+	 * by paging_init().  We use our current program counter to determine
 	 * corresponding section base address.
 	 */
-#if 0
 	mov	r0, #0x60000000
 	orr	r0, #0x00000C00
-	orr	r0, #0x0000000E
-#endif
-	mov	r0, #0x00000C00
-	orr	r0, #0x0000000E
-	@ add	r3, r4, #0x600 << 2		@ r4 = page table address
-	str	r0, [r4]			@ identity mapping @ 0x60002100
+	orr	r0, #0x0000000E			@ page table entry = 0x60000C0E
 
-	adr	r6, BSYM(__xscale_setup_moved)
-	@mov	r7, #0x60000000
-	@orr	r7, #0x00002100
-	mov	r7, #TRAMPOLINE
-	mov	r3, #0x100
+	add	r3, r4, #0x600 << 2		@ r4 = page table address
+	str	r0, [r3]			@ identity mapping at 0x60002100
+
+	adr	r6, BSYM(__xscale_setup_moved)	@ src
+	mov	r7, #0x60000000
+	orr	r7, #0x00002100			@ dest = Qmgr SRAM at 0x60002100
+	mov	r3, #(__xscale_setup_moved_end - __xscale_setup_moved) >> 2
 1:	ldr	r0, [r6], #4
 	str	r0, [r7], #4
 	subs	r3, r3, #1
 	bne	1b
-	@mov	r7, #0x60000000
-	@orr	r7, #0x00002100
-	mov	r7, #TRAMPOLINE
+
+	mov	r7, #0x60000000
+	orr	r7, #0x00002100
 	mov	pc, r7
 
 __xscale_setup_moved:
@@ -624,18 +618,9 @@ __xscale_setup_moved:
 	mov	r0, r0, ror #8
 	eor	r0, r0, r7, lsr #8
 	str	r0, [r6], #4
-	cmp	r6, #0x200			@ end address
+	cmp	r6, #64 * 1024 * 1024		@ end address
 	bne	2b
 
-	mov	r6, #0x400			@ base address to swap
-3:	ldr	r0, [r6]
-	eor	r7, r0, r0, ror #16
-	bic	r7, r7, #0x00ff0000
-	mov	r0, r0, ror #8
-	eor	r0, r0, r7, lsr #8
-	str	r0, [r6], #4
-	cmp	r6, #64 * 1024 * 1024		@ end address
-	bne	3b
 #endif /* CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT */
 	mov	r0, #1 << 6			@ cp6 for IOP3xx and Bulverde
 	orr	r0, r0, #1 << 13		@ Its undefined whether this
@@ -708,6 +693,7 @@ __xscale_turn_mmu_on:
 	.type	xscale_crval, #object
 xscale_crval:
 	crval	clear=0x00003b07, mmuset=0x00003905, ucset=0x00001900
+__xscale_setup_moved_end:
 
 	__INITDATA
 
