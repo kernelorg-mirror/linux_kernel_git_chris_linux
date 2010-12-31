@@ -48,6 +48,12 @@
  */
 #define CACHESIZE	32768
 
+#if CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT
+#define IXP4XX_PMD_P_BIT (PMD_PROTECTION)
+#else
+#define IXP4XX_PMD_P_BIT 0
+#endif
+
 /*
  * Virtual address used to allocate the cache when flushed
  *
@@ -740,14 +746,13 @@ __\name\()_proc_info:
 	.long	PMD_TYPE_SECT | \
 		PMD_SECT_BUFFERABLE | \
 		PMD_SECT_CACHEABLE | \
-#if defined(CONFIG_ARCH_IXP4XX) && defined(CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT)
-		PMD_PROTECTION | \
-#endif
 		PMD_SECT_AP_WRITE | \
-		PMD_SECT_AP_READ
+		PMD_SECT_AP_READ | \
+		IXP4XX_PMD_P_BIT
 	.long	PMD_TYPE_SECT | \
 		PMD_SECT_AP_WRITE | \
-		PMD_SECT_AP_READ
+		PMD_SECT_AP_READ | \
+		IXP4XX_PMD_P_BIT
 	b	__xscale_setup
 	.long	cpu_arch_name
 	.long	cpu_elf_name
