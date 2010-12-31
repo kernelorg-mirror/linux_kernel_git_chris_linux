@@ -243,14 +243,14 @@
 #define ERR_DISCONNECTING	7 /* disconnect is in progress */
 
 
-#ifdef __ARMEB__
-typedef struct sk_buff buffer_t;
-#define free_buffer dev_kfree_skb
-#define free_buffer_irq dev_kfree_skb_irq
-#else
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 typedef void buffer_t;
 #define free_buffer kfree
 #define free_buffer_irq kfree
+#else /* data-coherent */
+typedef struct sk_buff buffer_t;
+#define free_buffer dev_kfree_skb
+#define free_buffer_irq dev_kfree_skb_irq
 #endif
 
 struct port {
@@ -271,7 +271,7 @@ struct port {
 
 /* NPE message structure */
 struct msg {
-#ifdef __ARMEB__
+#ifdef CONFIG_CPU_BIG_ENDIAN
 	u8 cmd, unused, hss_port, index;
 	union {
 		struct { u8 data8a, data8b, data8c, data8d; };
@@ -292,22 +292,22 @@ struct msg {
 struct desc {
 	u32 next;		/* pointer to next buffer, unused */
 
-#ifdef __ARMEB__
-	u16 buf_len;		/* buffer length */
-	u16 pkt_len;		/* packet length */
-	u32 data;		/* pointer to data buffer in RAM */
-	u8 status;
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	mem16 pkt_len;		/* packet length */
+	mem16 buf_len;		/* buffer length */
+	mem32 data;		/* pointer to data buffer in RAM */
+	mem16 __reserved;
 	u8 error_count;
-	u16 __reserved;
+	u8 status;
 #else
-	u16 pkt_len;		/* packet length */
-	u16 buf_len;		/* buffer length */
-	u32 data;		/* pointer to data buffer in RAM */
-	u16 __reserved;
-	u8 error_count;
+	mem16 buf_len;		/* buffer length */
+	mem16 pkt_len;		/* packet length */
+	mem32 data;		/* pointer to data buffer in RAM */
 	u8 status;
+	u8 error_count;
+	mem16 __reserved;
 #endif
-	u32 __reserved1[4];
+	mem32 __reserved1[4];
 };
 
 
@@ -344,7 +344,7 @@ static inline struct port* dev_to_port(struct net_device *dev)
 	return dev_to_hdlc(dev)->priv;
 }
 
-#ifndef __ARMEB__
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 static inline void memcpy_swab32(u32 *dest, u32 *src, int cnt)
 {
 	int i;
@@ -578,8 +578,8 @@ static inline void debug_desc(u32 phys, struct desc *desc)
 {
 #if DEBUG_DESC
 	printk(KERN_DEBUG "%X: %X %3X %3X %08X %X %X\n",
-	       phys, desc->next, desc->buf_len, desc->pkt_len,
-	       desc->data, desc->status, desc->error_count);
+	       phys, desc->next, mem16_to_cpu(desc->buf_len), mem16_to_cpu(desc->pkt_len),
+	       mem32_to_cpu(desc->data), desc->status, desc->error_count);
 #endif
 }
 
@@ -615,12 +615,12 @@ static inline void queue_put_desc(unsigned int queue, u32 phys,
 
 static inline void dma_unmap_tx(struct port *port, struct desc *desc)
 {
-#ifdef __ARMEB__
-	dma_unmap_single(&port->netdev->dev, desc->data,
-			 desc->buf_len, DMA_TO_DEVICE);
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	dma_unmap_single(&port->netdev->dev, mem32_to_cpu(desc->data),
+			 mem16_to_cpu(desc->buf_len), DMA_TO_DEVICE);
 #else
-	dma_unmap_single(&port->netdev->dev, desc->data & ~3,
-			 ALIGN((desc->data & 3) + desc->buf_len, 4),
+	dma_unmap_single(&port->netdev->dev, mem32_to_cpu(desc->data) & ~3,
+			 ALIGN((mem32_to_cpu(desc->data) & 3) + mem16_to_cpu(desc->buf_len), 4),
 			 DMA_TO_DEVICE);
 #endif
 }
@@ -671,7 +671,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		struct sk_buff *skb;
 		struct desc *desc;
 		int n;
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 		struct sk_buff *temp;
 		u32 phys;
 #endif
@@ -710,7 +710,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		skb = NULL;
 		switch (desc->status) {
 		case 0:
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 			if ((skb = netdev_alloc_skb(dev, RX_SIZE)) != NULL) {
 				phys = dma_map_single(&dev->dev, skb->data,
 						      RX_SIZE,
@@ -721,7 +721,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 				}
 			}
 #else
-			skb = netdev_alloc_skb(dev, desc->pkt_len);
+			skb = netdev_alloc_skb(dev, mem16_to_cpu(desc->pkt_len));
 #endif
 			if (!skb)
 				dev->stats.rx_dropped++;
@@ -747,25 +747,25 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 
 		if (!skb) {
 			/* put the desc back on RX-ready queue */
-			desc->buf_len = RX_SIZE;
+			desc->buf_len = cpu_to_mem16(RX_SIZE);
 			desc->pkt_len = desc->status = 0;
 			queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
 			continue;
 		}
 
 		/* process received frame */
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 		temp = skb;
 		skb = port->rx_buff_tab[n];
-		dma_unmap_single(&dev->dev, desc->data,
+		dma_unmap_single(&dev->dev, mem32_to_cpu(desc->data),
 				 RX_SIZE, DMA_FROM_DEVICE);
 #else
-		dma_sync_single_for_cpu(&dev->dev, desc->data,
+		dma_sync_single_for_cpu(&dev->dev, mem32_to_cpu(desc->data),
 					RX_SIZE, DMA_FROM_DEVICE);
 		memcpy_swab32((u32 *)skb->data, (u32 *)port->rx_buff_tab[n],
-			      ALIGN(desc->pkt_len, 4) / 4);
+			      ALIGN(mem16_to_cpu(desc->pkt_len), 4) / 4);
 #endif
-		skb_put(skb, desc->pkt_len);
+		skb_put(skb, mem16_to_cpu(desc->pkt_len));
 
 		debug_pkt(dev, "hss_hdlc_poll", skb->data, skb->len);
 
@@ -775,11 +775,11 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		netif_receive_skb(skb);
 
 		/* put the new buffer on RX-free queue */
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 		port->rx_buff_tab[n] = temp;
-		desc->data = phys;
+		desc->data = cpu_to_mem32(phys);
 #endif
-		desc->buf_len = RX_SIZE;
+		desc->buf_len = cpu_to_mem16(RX_SIZE);
 		desc->pkt_len = 0;
 		queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
 		received++;
@@ -808,7 +808,7 @@ static void hss_hdlc_txdone_irq(void *pdev)
 		desc = tx_desc_ptr(port, n_desc);
 
 		dev->stats.tx_packets++;
-		dev->stats.tx_bytes += desc->pkt_len;
+		dev->stats.tx_bytes += mem16_to_cpu(desc->pkt_len);
 
 		dma_unmap_tx(port, desc);
 #if DEBUG_TX
@@ -853,7 +853,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 	debug_pkt(dev, "hss_hdlc_xmit", skb->data, skb->len);
 
 	len = skb->len;
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 	offset = 0; /* no need to keep alignment */
 	bytes = len;
 	mem = skb->data;
@@ -871,7 +871,7 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	phys = dma_map_single(&dev->dev, mem, bytes, DMA_TO_DEVICE);
 	if (dma_mapping_error(&dev->dev, phys)) {
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 		dev_kfree_skb(skb);
 #else
 		kfree(mem);
@@ -884,13 +884,13 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 	BUG_ON(n < 0);
 	desc = tx_desc_ptr(port, n);
 
-#ifdef __ARMEB__
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 	port->tx_buff_tab[n] = skb;
 #else
 	port->tx_buff_tab[n] = mem;
 #endif
-	desc->data = phys + offset;
-	desc->buf_len = desc->pkt_len = len;
+	desc->data = cpu_to_mem32(phys + offset);
+	desc->buf_len = desc->pkt_len = cpu_to_mem16(len);
 
 	wmb();
 	queue_put_desc(queue_ids[port->id].tx, tx_desc_phys(port, n), desc);
@@ -992,7 +992,8 @@ static int init_hdlc_queues(struct port *port)
 		struct desc *desc = rx_desc_ptr(port, i);
 		buffer_t *buff;
 		void *data;
-#ifdef __ARMEB__
+		u32 phys;
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 		if (!(buff = netdev_alloc_skb(port->netdev, RX_SIZE)))
 			return -ENOMEM;
 		data = buff->data;
@@ -1001,13 +1002,14 @@ static int init_hdlc_queues(struct port *port)
 			return -ENOMEM;
 		data = buff;
 #endif
-		desc->buf_len = RX_SIZE;
-		desc->data = dma_map_single(&port->netdev->dev, data,
-					    RX_SIZE, DMA_FROM_DEVICE);
-		if (dma_mapping_error(&port->netdev->dev, desc->data)) {
+		desc->buf_len = cpu_to_mem16(RX_SIZE);
+		phys = dma_map_single(&port->netdev->dev, data,
+				      RX_SIZE, DMA_FROM_DEVICE);
+		if (dma_mapping_error(&port->netdev->dev, phys)) {
 			free_buffer(buff);
 			return -EIO;
 		}
+		desc->data = cpu_to_mem32(phys);
 		port->rx_buff_tab[i] = buff;
 	}
 

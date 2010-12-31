@@ -695,6 +695,25 @@ config CPU_ENDIAN_BE32
 	help
 	  Support for the BE-32 (big-endian) mode on pre-ARMv6 processors.
 
+config CPU_LITTLE_ENDIAN_DATA_COHERENT
+	bool "Data-coherent CPU mode"
+	depends on ARCH_IXP4XX && !CPU_BIG_ENDIAN && !IXP4XX_SUPPORT_425A0
+	default y
+	help
+	  Use data-coherent mode to access CPU address space. This will
+	  improve performance of drivers using Network Processor Engines
+	  (NPE), at the cost of added boot complexity.
+	  Certain peripherals are always accessed in address-coherent mode.
+
+	  If unsure, say "Y".
+
+config CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	bool
+	depends on ARCH_IXP4XX && !CPU_BIG_ENDIAN && !CPU_LITTLE_ENDIAN_DATA_COHERENT
+	help
+	  Use address-coherent mode to access memory. The only little-endian
+	  option available for IXP42x CPU rev. A0.
+
 config CPU_HIGH_VECTOR
 	depends on !MMU && CPU_CP15 && !CPU_ARM740T
 	bool "Select the High exception vector"

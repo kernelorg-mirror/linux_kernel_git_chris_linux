@@ -16,6 +16,26 @@
 #include <linux/bitops.h>
 #include <mach/hardware.h>
 
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT
+
+typedef __be16 mem16;
+typedef __be32 mem32;
+#define mem16_to_cpu(x) be16_to_cpu(x)
+#define mem32_to_cpu(x) be32_to_cpu(x)
+#define cpu_to_mem16(x) cpu_to_be16(x)
+#define cpu_to_mem32(x) cpu_to_be32(x)
+
+#else /* value-coherent */
+
+typedef u16 mem16;
+typedef u32 mem32;
+#define mem16_to_cpu(x) (x)
+#define mem32_to_cpu(x) (x)
+#define cpu_to_mem16(x) (x)
+#define cpu_to_mem32(x) (x)
+
+#endif
+
 struct pci_bus;
 
 extern int ixp4xx_pci_read(u32 addr, u32 cmd, u32* data);

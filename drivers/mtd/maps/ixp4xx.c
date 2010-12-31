@@ -35,9 +35,9 @@
 /*
  * Read/write a 16 bit word from flash address 'addr'.
  *
- * When the cpu is in little-endian mode it swizzles the address lines
- * ('address coherency') so we need to undo the swizzling to ensure commands
- * and the like end up on the correct flash address.
+ * When the cpu is in little-endian data-coherent mode it swizzles the address
+ * lines so we need to undo the swizzling to ensure commands and the like end
+ * up on the correct flash address.
  *
  * To further complicate matters, due to the way the expansion bus controller
  * handles 32 bit reads, the byte stream ABCD is stored on the flash as:
@@ -51,10 +51,26 @@
  * this requires CONFIG_MTD_CFI_BE_BYTE_SWAP to be enabled to 'unswap' the CFI
  * data and other flash commands which are always in D7-D0.
  */
-#ifndef __ARMEB__
-#ifndef CONFIG_MTD_CFI_BE_BYTE_SWAP
-#  error CONFIG_MTD_CFI_BE_BYTE_SWAP required
+#ifdef CONFIG_CPU_BIG_ENDIAN
+
+#ifndef CONFIG_MTD_CFI_NOSWAP
+#error CONFIG_MTD_CFI_NOSWAP required
 #endif
+#define	BYTE0(h)	(((h) >> 8) & 0xFF)
+#define	BYTE1(h)	((h) & 0xFF)
+
+#else /* little-endian */
+
+#ifndef CONFIG_MTD_CFI_BE_BYTE_SWAP
+#error CONFIG_MTD_CFI_BE_BYTE_SWAP required
+#endif
+#define	BYTE0(h)	((h) & 0xFF)
+#define	BYTE1(h)	(((h) >> 8) & 0xFF)
+
+#endif
+
+
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 
 static inline u16 flash_read16(void __iomem *addr)
 {
@@ -66,10 +82,7 @@ static inline void flash_write16(u16 d, void __iomem *addr)
 	__raw_writew(cpu_to_be16(d), (void __iomem *)((unsigned long)addr ^ 0x2));
 }
 
-#define	BYTE0(h)	((h) & 0xFF)
-#define	BYTE1(h)	(((h) >> 8) & 0xFF)
-
-#else
+#else /* data-coherent */
 
 static inline u16 flash_read16(const void __iomem *addr)
 {
@@ -81,8 +94,6 @@ static inline void flash_write16(u16 d, void __iomem *addr)
 	__raw_writew(d, addr);
 }
 
-#define	BYTE0(h)	(((h) >> 8) & 0xFF)
-#define	BYTE1(h)	((h) & 0xFF)
 #endif
 
 static map_word ixp4xx_read16(struct map_info *map, unsigned long ofs)

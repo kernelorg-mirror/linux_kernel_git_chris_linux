@@ -351,6 +351,10 @@ static void __init build_mem_type_table(void)
 		for (i = 0; i < ARRAY_SIZE(mem_types); i++) {
 			mem_types[i].prot_sect &= ~PMD_BIT4;
 			mem_types[i].prot_l1 &= ~PMD_BIT4;
+#if defined(CONFIG_ARCH_IXP4XX) && defined(CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT)
+			mem_types[i].prot_l1 |= PMD_PROTECTION;
+			mem_types[i].prot_sect |= PMD_PROTECTION;
+#endif
 		}
 	} else if (cpu_arch < CPU_ARCH_ARMv6) {
 		for (i = 0; i < ARRAY_SIZE(mem_types); i++) {
@@ -559,6 +563,10 @@ static pte_t * __init early_pte_alloc(pmd_t *pmd, unsigned long addr, unsigned l
 {
 	if (pmd_none(*pmd)) {
 		pte_t *pte = early_alloc(PTE_HWTABLE_OFF + PTE_HWTABLE_SIZE);
+#if defined(CONFIG_ARCH_IXP4XX) && defined(CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT)
+		if ((addr & MEM_VALUE_COHERENT_ADDR_MASK) == MEM_VALUE_COHERENT_BASE_VIRT)
+			prot &= ~PMD_PROTECTION; /* value-coherent */
+#endif
 		__pmd_populate(pmd, __pa(pte), prot);
 	}
 	BUG_ON(pmd_bad(*pmd));

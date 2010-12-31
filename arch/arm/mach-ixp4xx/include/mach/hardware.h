@@ -26,6 +26,11 @@
 /* Register locations and bits */
 #include "ixp4xx-regs.h"
 
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT
+#define MEM_VALUE_COHERENT_BASE_VIRT 0xFFA00000
+#define MEM_VALUE_COHERENT_ADDR_MASK 0xFFE00000 /* 2 MB */
+#endif
+
 #ifndef __ASSEMBLER__
 #include <mach/cpu.h>
 #endif

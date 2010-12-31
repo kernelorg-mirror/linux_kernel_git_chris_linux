@@ -379,20 +379,18 @@ static struct platform_device *device_tab[6] __initdata = {
 
 static inline u8 __init flash_readb(u8 __iomem *flash, u32 addr)
 {
-#ifdef __ARMEB__
-	return __raw_readb(flash + addr);
-#else
-	return __raw_readb(flash + (addr ^ 3));
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	addr ^= 3;
 #endif
+	return __raw_readb(flash + addr);
 }
 
 static inline u16 __init flash_readw(u8 __iomem *flash, u32 addr)
 {
-#ifdef __ARMEB__
-	return __raw_readw(flash + addr);
-#else
-	return __raw_readw(flash + (addr ^ 2));
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	addr ^= 2;
 #endif
+	return mem16_to_cpu(__raw_readw(flash + addr));
 }
 
 static void __init gmlr_init(void)
@@ -406,8 +404,8 @@ static void __init gmlr_init(void)
 		printk(KERN_ERR "goramo-mlr: unable to access system"
 		       " configuration data\n");
 	else {
-		system_rev = __raw_readl(flash + CFG_REV);
-		hw_bits = __raw_readl(flash + CFG_HW_BITS);
+		system_rev = mem32_to_cpu(__raw_readl(flash + CFG_REV));
+		hw_bits = mem32_to_cpu(__raw_readl(flash + CFG_HW_BITS));
 
 		for (i = 0; i < ETH_ALEN; i++) {
 			eth_plat[0].hwaddr[i] =

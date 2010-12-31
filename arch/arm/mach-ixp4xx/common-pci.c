@@ -403,10 +403,10 @@ void __init ixp4xx_pci_preinit(void)
 	 * operating in big endian mode. Set up byte lane swapping between 
 	 * little-endian PCI and the big-endian AHB bus 
 	 */
-#ifdef __ARMEB__
-	*PCI_CSR = PCI_CSR_IC | PCI_CSR_ABE | PCI_CSR_PDS | PCI_CSR_ADS;
-#else
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 	*PCI_CSR = PCI_CSR_IC | PCI_CSR_ABE;
+#else
+	*PCI_CSR = PCI_CSR_IC | PCI_CSR_ABE | PCI_CSR_PDS | PCI_CSR_ADS;
 #endif
 
 	pr_debug("DONE\n");

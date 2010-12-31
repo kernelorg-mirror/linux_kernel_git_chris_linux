@@ -23,11 +23,13 @@
 #include <linux/linkage.h>
 #include <linux/init.h>
 #include <asm/assembler.h>
+#include <asm/domain.h>
 #include <asm/hwcap.h>
 #include <asm/pgtable.h>
 #include <asm/pgtable-hwdef.h>
 #include <asm/page.h>
 #include <asm/ptrace.h>
+#include <asm/system.h>
 #include "proc-macros.S"
 
 /*
@@ -565,6 +567,70 @@ __xscale_setup:
 	mcr	p15, 0, ip, c7, c7, 0		@ invalidate I, D caches & BTB
 	mcr	p15, 0, ip, c7, c10, 4		@ Drain Write (& Fill) Buffer
 	mcr	p15, 0, ip, c8, c7, 0		@ invalidate I, D TLBs
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT
+	mov	r6, #0xc4000000
+	orr	r6, #0x00000024			@ EXP_CFG1 register
+	ldr	r0, [r6]
+	orr	r0, #0x100			@ set BYTE_SWAP_EN bit
+	str	r0, [r6]
+
+	mrc	p15, 0, r0, c1, c0, 1
+	orr	r0, r0, #2			@ set the P bit for page table
+	mcr	p15, 0, r0, c1, c0, 1
+
+#define TRAMPOLINE 0x200
+
+	/*
+	 * Create identity mapping for on-chip Queue Manager SRAM to cater for
+	 * the MMU enable.  This identity mapping will be removed by
+	 * paging_init().  We use our current program counter to determine
+	 * corresponding section base address.
+	 */
+#if 0
+	mov	r0, #0x60000000
+	orr	r0, #0x00000C00
+	orr	r0, #0x0000000E
+#endif
+	mov	r0, #0x00000C00
+	orr	r0, #0x0000000E
+	@ add	r3, r4, #0x600 << 2		@ r4 = page table address
+	str	r0, [r4]			@ identity mapping @ 0x60002100
+
+	adr	r6, BSYM(__xscale_setup_moved)
+	@mov	r7, #0x60000000
+	@orr	r7, #0x00002100
+	mov	r7, #TRAMPOLINE
+	mov	r3, #0x100
+1:	ldr	r0, [r6], #4
+	str	r0, [r7], #4
+	subs	r3, r3, #1
+	bne	1b
+	@mov	r7, #0x60000000
+	@orr	r7, #0x00002100
+	mov	r7, #TRAMPOLINE
+	mov	pc, r7
+
+__xscale_setup_moved:
+	mov	r6, #0				@ base address to swap
+2:	ldr	r0, [r6]
+	eor	r7, r0, r0, ror #16
+	bic	r7, r7, #0x00ff0000
+	mov	r0, r0, ror #8
+	eor	r0, r0, r7, lsr #8
+	str	r0, [r6], #4
+	cmp	r6, #0x200			@ end address
+	bne	2b
+
+	mov	r6, #0x400			@ base address to swap
+3:	ldr	r0, [r6]
+	eor	r7, r0, r0, ror #16
+	bic	r7, r7, #0x00ff0000
+	mov	r0, r0, ror #8
+	eor	r0, r0, r7, lsr #8
+	str	r0, [r6], #4
+	cmp	r6, #64 * 1024 * 1024		@ end address
+	bne	3b
+#endif /* CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT */
 	mov	r0, #1 << 6			@ cp6 for IOP3xx and Bulverde
 	orr	r0, r0, #1 << 13		@ Its undefined whether this
 	mcr	p15, 0, r0, c15, c1, 0		@ affects USR or SVC modes
@@ -574,7 +640,57 @@ __xscale_setup:
 	mrc	p15, 0, r0, c1, c0, 0		@ get control register
 	bic	r0, r0, r5
 	orr	r0, r0, r6
+
+#ifndef CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT
 	mov	pc, lr
+#else
+/*
+ * Setup common bits before finally enabling the MMU.  Essentially
+ * this is just loading the page table pointer and domain access
+ * registers.
+ */
+#ifdef CONFIG_ALIGNMENT_TRAP
+	orr	r0, r0, #CR_A
+#else
+	bic	r0, r0, #CR_A
+#endif
+#ifdef CONFIG_CPU_DCACHE_DISABLE
+	bic	r0, r0, #CR_C
+#endif
+#ifdef CONFIG_CPU_BPREDICT_DISABLE
+	bic	r0, r0, #CR_Z
+#endif
+#ifdef CONFIG_CPU_ICACHE_DISABLE
+	bic	r0, r0, #CR_I
+#endif
+	mov	r5, #(domain_val(DOMAIN_USER, DOMAIN_MANAGER) | \
+		      domain_val(DOMAIN_KERNEL, DOMAIN_MANAGER) | \
+		      domain_val(DOMAIN_TABLE, DOMAIN_MANAGER) | \
+		      domain_val(DOMAIN_IO, DOMAIN_CLIENT))
+	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
+	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
+	b	__xscale_turn_mmu_on
+
+/*
+ * Enable the MMU.  This completely changes the structure of the visible
+ * memory space.  You will not be able to trace execution through this.
+ * If you have an enquiry about this, *please* check the linux-arm-kernel
+ * mailing list archives BEFORE sending another post to the list.
+ *
+ *  r0  = cp#15 control register
+ *  r13 = *virtual* address to jump to upon completion
+ *
+ * other registers depend on the function called upon completion
+ */
+	.align	5
+__xscale_turn_mmu_on:
+	mov	r0, r0
+	mcr	p15, 0, r0, c1, c0, 0		@ write control reg
+	mrc	p15, 0, r3, c0, c0, 0		@ read id reg
+	mov	r3, r3
+	mov	r3, r13
+	mov	pc, r3
+#endif
 	.size	__xscale_setup, . - __xscale_setup
 
 	/*
@@ -624,6 +740,9 @@ __\name\()_proc_info:
 	.long	PMD_TYPE_SECT | \
 		PMD_SECT_BUFFERABLE | \
 		PMD_SECT_CACHEABLE | \
+#if defined(CONFIG_ARCH_IXP4XX) && defined(CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT)
+		PMD_PROTECTION | \
+#endif
 		PMD_SECT_AP_WRITE | \
 		PMD_SECT_AP_READ
 	.long	PMD_TYPE_SECT | \

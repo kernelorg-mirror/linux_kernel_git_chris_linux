@@ -111,52 +111,52 @@
 #define MD5_DIGEST_SIZE   16
 
 struct buffer_desc {
-	u32 phys_next;
-#ifdef __ARMEB__
-	u16 buf_len;
-	u16 pkt_len;
+	mem32 phys_next;
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	mem16 pkt_len;
+	mem16 buf_len;
 #else
-	u16 pkt_len;
-	u16 buf_len;
+	mem16 buf_len;
+	mem16 pkt_len;
 #endif
-	u32 phys_addr;
-	u32 __reserved[5];
+	mem32 phys_addr;
+	mem32 __reserved[5];
 	struct buffer_desc *next;
 	enum dma_data_direction dir;
 };
 
 struct crypt_info {
-	u32 cfg;
+	mem32 cfg;
 	u8 data[0];
 };
 
 struct crypt_ctl {
-#ifdef __ARMEB__
-	u8 mode;		/* NPE_OP_*  operation mode */
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	mem16 reserved;
 	u8 init_len;
-	u16 reserved;
+	u8 mode;		/* NPE_OP_*  operation mode */
 #else
-	u16 reserved;
-	u8 init_len;
 	u8 mode;		/* NPE_OP_*  operation mode */
+	u8 init_len;
+	mem16 reserved;
 #endif
 	u8 iv[MAX_IVLEN];	/* IV for CBC mode or CTR IV for CTR mode */
-	u32 icv_rev_aes;	/* address to store icv or rev aes */
-	u32 src_buf;
-	u32 dst_buf;
-#ifdef __ARMEB__
-	u16 auth_offs;		/* Authentication start offset */
-	u16 auth_len;		/* Authentication data length */
-	u16 crypt_offs;		/* Cryption start offset */
-	u16 crypt_len;		/* Cryption data length */
+	mem32 icv_rev_aes;	/* address to store icv or rev aes */
+	mem32 src_buf;
+	mem32 dst_buf;
+#ifdef CONFIG_CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
+	mem16 auth_len;		/* Authentication data length */
+	mem16 auth_offs;		/* Authentication start offset */
+	mem16 crypt_len;		/* Cryption data length */
+	mem16 crypt_offs;		/* Cryption start offset */
 #else
-	u16 auth_len;		/* Authentication data length */
-	u16 auth_offs;		/* Authentication start offset */
-	u16 crypt_len;		/* Cryption data length */
-	u16 crypt_offs;		/* Cryption start offset */
+	mem16 auth_offs;		/* Authentication start offset */
+	mem16 auth_len;		/* Authentication data length */
+	mem16 crypt_offs;		/* Cryption start offset */
+	mem16 crypt_len;		/* Cryption data length */
 #endif
-	u32 aadAddr;		/* Additional Auth Data Addr for CCM mode */
-	u32 crypto_ctx;		/* NPE Crypto Param structure address */
+	mem32 aadAddr;		/* Additional Auth Data Addr for CCM mode */
+	mem32 crypto_ctx;		/* NPE Crypto Param structure address */
 
 	/* Used only by host: 4 * 4 bytes */
 	unsigned ctl_flags;
@@ -352,8 +352,8 @@ static void free_buf_chain(struct device *dev, struct buffer_desc *buf, u32 phys
 		u32 phys1;
 
 		buf1 = buf->next;
-		phys1 = buf->phys_next;
-		dma_unmap_single(dev, buf->phys_next, buf->buf_len, buf->dir);
+		phys1 = mem32_to_cpu(buf->phys_next);
+		dma_unmap_single(dev, mem32_to_cpu(buf->phys_next), mem16_to_cpu(buf->buf_len), buf->dir);
 		dma_pool_free(buffer_pool, buf, phys);
 		buf = buf1;
 		phys = phys1;
@@ -373,7 +373,7 @@ static void finish_scattered_hmac(struct crypt_ctl *crypt)
 	if (req_ctx->encrypt)
 		scatterwalk_map_and_copy(req_ctx->hmac_virt,
 			req->src, decryptlen, authsize, 1);
-	dma_pool_free(buffer_pool, req_ctx->hmac_virt, crypt->icv_rev_aes);
+	dma_pool_free(buffer_pool, req_ctx->hmac_virt, mem32_to_cpu(crypt->icv_rev_aes));
 }
 
 static void one_packet(dma_addr_t phys)
@@ -391,7 +391,7 @@ static void one_packet(dma_addr_t phys)
 		struct aead_request *req = crypt->data.aead_req;
 		struct aead_ctx *req_ctx = aead_request_ctx(req);
 
-		free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
+		free_buf_chain(dev, req_ctx->buffer, mem32_to_cpu(crypt->src_buf));
 		if (req_ctx->hmac_virt)
 			finish_scattered_hmac(crypt);
 		req->base.complete(&req->base, failed);
@@ -402,22 +402,22 @@ static void one_packet(dma_addr_t phys)
 		struct ablk_ctx *req_ctx = ablkcipher_request_ctx(req);
 
 		if (req_ctx->dst)
-			free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
-		free_buf_chain(dev, req_ctx->src, crypt->src_buf);
+			free_buf_chain(dev, req_ctx->dst, mem32_to_cpu(crypt->dst_buf));
+		free_buf_chain(dev, req_ctx->src, mem32_to_cpu(crypt->src_buf));
 		req->base.complete(&req->base, failed);
 		break;
 	}
 	case CTL_FLAG_GEN_ICV:
 		ctx = crypto_tfm_ctx(crypt->data.tfm);
 		dma_pool_free(ctx_pool, crypt->regist_ptr,
-				crypt->regist_buf->phys_addr);
-		dma_pool_free(buffer_pool, crypt->regist_buf, crypt->src_buf);
+			      mem32_to_cpu(crypt->regist_buf->phys_addr));
+		dma_pool_free(buffer_pool, crypt->regist_buf, mem32_to_cpu(crypt->src_buf));
 		if (atomic_dec_and_test(&ctx->configuring))
 			complete(&ctx->completion);
 		break;
 	case CTL_FLAG_GEN_REVAES:
 		ctx = crypto_tfm_ctx(crypt->data.tfm);
-		ctx->decrypt.npe_ctx->cfg &= ~CFG_CIPH_ENCR;
+		ctx->decrypt.npe_ctx->cfg &= cpu_to_mem32(~CFG_CIPH_ENCR);
 		if (atomic_dec_and_test(&ctx->configuring))
 			complete(&ctx->completion);
 		break;
@@ -637,18 +637,18 @@ static int register_chain_var(struct crypto_tfm *tfm, u8 xpad, u32 target,
 	crypt->regist_buf = buf;
 
 	crypt->auth_offs = 0;
-	crypt->auth_len = HMAC_PAD_BLOCKLEN;
-	crypt->crypto_ctx = ctx_addr;
-	crypt->src_buf = buf_phys;
-	crypt->icv_rev_aes = target;
+	crypt->auth_len = cpu_to_mem16(HMAC_PAD_BLOCKLEN);
+	crypt->crypto_ctx = cpu_to_mem32(ctx_addr);
+	crypt->src_buf = cpu_to_mem32(buf_phys);
+	crypt->icv_rev_aes = cpu_to_mem32(target);
 	crypt->mode = NPE_OP_HASH_GEN_ICV;
 	crypt->init_len = init_len;
 	crypt->ctl_flags |= CTL_FLAG_GEN_ICV;
 
 	buf->next = NULL;
-	buf->buf_len = HMAC_PAD_BLOCKLEN;
+	buf->buf_len = cpu_to_mem16(HMAC_PAD_BLOCKLEN);
 	buf->pkt_len = 0;
-	buf->phys_addr = pad_phys;
+	buf->phys_addr = cpu_to_mem32(pad_phys);
 
 	atomic_inc(&ctx->configuring);
 	qmgr_put_entry(SEND_QID, crypt_virt2phys(crypt));
@@ -674,10 +674,10 @@ static int setup_auth(struct crypto_tfm *tfm, int encrypt, unsigned authsize,
 
 	/* write cfg word to cryptinfo */
 	cfgword = algo->cfgword | (authsize << 6); /* (authsize/4) << 8 */
-#ifndef __ARMEB__
+#ifdef CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 	cfgword ^= CFG_AUTH_SWAP; /* change the "byte swap" flags */
 #endif
-	cinfo->cfg = cfgword;
+	cinfo->cfg = cpu_to_mem32(cfgword);
 
 	/* write ICV to cryptinfo */
 	memcpy(cinfo->data, algo->icv, digest_len);
@@ -709,14 +709,14 @@ static int gen_rev_aes_key(struct crypto_tfm *tfm)
 	crypt = get_crypt_desc_emerg();
 	if (!crypt)
 		return -EAGAIN;
-	dir->npe_ctx->cfg |= CFG_CIPH_ENCR;
+	dir->npe_ctx->cfg |= cpu_to_mem32(CFG_CIPH_ENCR);
 
 	crypt->data.tfm = tfm;
 	crypt->crypt_offs = 0;
-	crypt->crypt_len = AES_BLOCK128;
+	crypt->crypt_len = cpu_to_mem16(AES_BLOCK128);
 	crypt->src_buf = 0;
-	crypt->crypto_ctx = dir->npe_ctx_phys;
-	crypt->icv_rev_aes = dir->npe_ctx_phys + sizeof(*dir->npe_ctx);
+	crypt->crypto_ctx = cpu_to_mem32(dir->npe_ctx_phys);
+	crypt->icv_rev_aes = cpu_to_mem32(dir->npe_ctx_phys + sizeof(*dir->npe_ctx));
 	crypt->mode = NPE_OP_ENC_GEN_KEY;
 	crypt->init_len = dir->npe_ctx_idx;
 	crypt->ctl_flags |= CTL_FLAG_GEN_REVAES;
@@ -769,12 +769,12 @@ static int setup_cipher(struct crypto_tfm *tfm, int encrypt,
 			*flags |= CRYPTO_TFM_RES_WEAK_KEY;
 	}
 
-#ifndef __ARMEB__
+#ifdef CPU_LITTLE_ENDIAN_ADDRESS_COHERENT
 	cipher_cfg ^= CFG_CRYPT_SWAP;
 #endif
 
 	/* write cfg word to cryptinfo */
-	cinfo->cfg = cipher_cfg;
+	cinfo->cfg = cpu_to_mem32(cipher_cfg);
 
 	/* write cipher key to cryptinfo */
 	memcpy(cinfo->data, key, key_len);
@@ -810,11 +810,11 @@ static struct buffer_desc *chainup_buffers(struct device *dev,
 		}
 		sg_dma_address(sg) = dma_map_single(dev, ptr, len, dir);
 		buf->next = next_buf;
-		buf->phys_next = next_buf_phys;
+		buf->phys_next = cpu_to_mem32(next_buf_phys);
 		buf = next_buf;
 
-		buf->phys_addr = sg_dma_address(sg);
-		buf->buf_len = len;
+		buf->phys_addr = cpu_to_mem32(sg_dma_address(sg));
+		buf->buf_len = cpu_to_mem16(len);
 		buf->dir = dir;
 	}
 	buf->next = NULL;
@@ -899,12 +899,12 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 		return -ENOMEM;
 
 	crypt->data.ablk_req = req;
-	crypt->crypto_ctx = dir->npe_ctx_phys;
+	crypt->crypto_ctx = cpu_to_mem32(dir->npe_ctx_phys);
 	crypt->mode = dir->mode;
 	crypt->init_len = dir->npe_ctx_idx;
 
 	crypt->crypt_offs = 0;
-	crypt->crypt_len = nbytes;
+	crypt->crypt_len = cpu_to_mem16(nbytes);
 
 	BUG_ON(ivsize && !req->info);
 	memcpy(crypt->iv, req->info, ivsize);
@@ -936,10 +936,10 @@ static int ablk_perform(struct ablkcipher_request *req, int encrypt)
 	return -EINPROGRESS;
 
 free_buf_src:
-	free_buf_chain(dev, req_ctx->src, crypt->src_buf);
+	free_buf_chain(dev, req_ctx->src, mem32_to_cpu(crypt->src_buf));
 free_buf_dest:
 	if (req->src != req->dst)
-		free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
+		free_buf_chain(dev, req_ctx->dst, mem32_to_cpu(crypt->dst_buf));
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
 	return -ENOMEM;
 }
@@ -1028,15 +1028,15 @@ static int aead_perform(struct aead_request *req, int encrypt,
 		return -ENOMEM;
 
 	crypt->data.aead_req = req;
-	crypt->crypto_ctx = dir->npe_ctx_phys;
+	crypt->crypto_ctx = cpu_to_mem32(dir->npe_ctx_phys);
 	crypt->mode = dir->mode;
 	crypt->init_len = dir->npe_ctx_idx;
 
-	crypt->crypt_offs = cryptoffset;
-	crypt->crypt_len = eff_cryptlen;
+	crypt->crypt_offs = cpu_to_mem16(cryptoffset);
+	crypt->crypt_len = cpu_to_mem16(eff_cryptlen);
 
 	crypt->auth_offs = 0;
-	crypt->auth_len = req->assoclen + ivsize + cryptlen;
+	crypt->auth_len = cpu_to_mem16(req->assoclen + ivsize + cryptlen);
 	BUG_ON(ivsize && !req->iv);
 	memcpy(crypt->iv, req->iv, ivsize);
 
@@ -1060,10 +1060,11 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	if (unlikely(hmac_inconsistent(req->src, cryptlen, authsize))) {
 		/* The 12 hmac bytes are scattered,
 		 * we need to copy them into a safe buffer */
-		req_ctx->hmac_virt = dma_pool_alloc(buffer_pool, flags,
-				&crypt->icv_rev_aes);
+		u32 phys;
+		req_ctx->hmac_virt = dma_pool_alloc(buffer_pool, flags, &phys);
 		if (unlikely(!req_ctx->hmac_virt))
 			goto free_chain;
+		crypt->icv_rev_aes = cpu_to_mem32(phys);
 		if (!encrypt)
 			scatterwalk_map_and_copy(req_ctx->hmac_virt,
 				req->src, cryptlen, authsize, 0);
@@ -1076,7 +1077,7 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	if (!buf)
 		goto free_hmac_virt;
 	if (!req_ctx->hmac_virt)
-		crypt->icv_rev_aes = buf->phys_addr + buf->buf_len - authsize;
+		crypt->icv_rev_aes = cpu_to_mem32(mem32_to_cpu(buf->phys_addr) + mem16_to_cpu(buf->buf_len) - authsize);
 
 	crypt->ctl_flags |= CTL_FLAG_PERFORM_AEAD;
 	qmgr_put_entry(SEND_QID, crypt_virt2phys(crypt));
@@ -1085,9 +1086,9 @@ static int aead_perform(struct aead_request *req, int encrypt,
 free_hmac_virt:
 	if (req_ctx->hmac_virt)
 		dma_pool_free(buffer_pool, req_ctx->hmac_virt,
-				crypt->icv_rev_aes);
+			      mem32_to_cpu(crypt->icv_rev_aes));
 free_chain:
-	free_buf_chain(dev, req_ctx->buffer, crypt->src_buf);
+	free_buf_chain(dev, req_ctx->buffer, mem32_to_cpu(crypt->src_buf));
 out:
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
 	return -ENOMEM;
