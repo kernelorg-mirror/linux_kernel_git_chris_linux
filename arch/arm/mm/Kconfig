@@ -697,7 +697,7 @@ config CPU_ENDIAN_BE32
 
 config CPU_LITTLE_ENDIAN_DATA_COHERENT
 	bool "Data-coherent CPU mode"
-	depends on ARCH_IXP4XX && !CPU_BIG_ENDIAN && !IXP4XX_SUPPORT_425A0
+	depends on ARCH_IXP4XX && !CPU_BIG_ENDIAN && !IXP4XX_SUPPORT_425A0 && !XIP_KERNEL
 	default y
 	help
 	  Use data-coherent mode to access CPU address space. This will
