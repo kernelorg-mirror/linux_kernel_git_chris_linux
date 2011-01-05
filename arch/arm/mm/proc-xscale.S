@@ -611,15 +611,9 @@ __xscale_setup:
 	mov	pc, r7
 
 __xscale_setup_moved:
-	mov	r6, #0				@ base address to swap
-2:	ldr	r0, [r6]
-	eor	r7, r0, r0, ror #16
-	bic	r7, r7, #0x00ff0000
-	mov	r0, r0, ror #8
-	eor	r0, r0, r7, lsr #8
-	str	r0, [r6], #4
-	cmp	r6, #64 * 1024 * 1024		@ end address
-	bne	2b
+	mov	r6, r4				@ base address to swap
+	ldr	r7, bss_start			@ end address
+	bl	xscale_swap
 
 #endif /* CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT */
 	mov	r0, #1 << 6			@ cp6 for IOP3xx and Bulverde
@@ -661,6 +655,20 @@ __xscale_setup_moved:
 	mcr	p15, 0, r5, c3, c0, 0		@ load domain access register
 	mcr	p15, 0, r4, c2, c0, 0		@ load page table pointer
 	b	__xscale_turn_mmu_on
+
+bss_start:
+	.word __bss_start - PAGE_OFFSET + PHYS_OFFSET
+
+xscale_swap:
+1:	ldr	r0, [r6]
+	eor	r8, r0, r0, ror #16
+	bic	r8, r8, #0x00ff0000
+	mov	r0, r0, ror #8
+	eor	r0, r0, r8, lsr #8
+	str	r0, [r6], #4
+	cmp	r6, r7		@ end address
+	bne	1b
+	mov	pc, lr
 
 /*
  * Enable the MMU.  This completely changes the structure of the visible
