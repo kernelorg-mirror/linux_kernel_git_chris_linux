@@ -14,7 +14,7 @@
 #include <linux/module.h>
 #include <mach/qmgr.h>
 
-struct qmgr_regs __iomem *qmgr_regs;
+static const struct qmgr_regs __iomem *qmgr_regs = (void __iomem *)IXP4XX_QMGR_BASE_VIRT;
 static struct resource *mem_res;
 static spinlock_t qmgr_lock;
 static u32 used_sram_bitmap[4]; /* 128 16-dword pages */
@@ -32,7 +32,7 @@ void qmgr_set_irq(unsigned int queue, int src,
 
 	spin_lock_irqsave(&qmgr_lock, flags);
 	if (queue < HALF_QUEUES) {
-		u32 __iomem *reg;
+		const u32 __iomem *reg;
 		int bit;
 		BUG_ON(src > QUEUE_IRQ_SRC_NOT_FULL);
 		reg = &qmgr_regs->irqsrc[queue >> 3]; /* 8 queues per u32 */
@@ -48,6 +48,7 @@ void qmgr_set_irq(unsigned int queue, int src,
 	spin_unlock_irqrestore(&qmgr_lock, flags);
 }
 
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
 
 static irqreturn_t qmgr_irq1_a0(int irq, void *pdev)
 {
@@ -91,7 +92,7 @@ static irqreturn_t qmgr_irq2_a0(int irq, void *pdev)
 	}
 	return ret;
 }
-
+#endif /* CONFIG_IXP4XX_SUPPORT_425A0 */
 
 static irqreturn_t qmgr_irq(int irq, void *pdev)
 {
@@ -265,6 +266,11 @@ void qmgr_release_queue(unsigned int queue)
 	       qmgr_queue_descs[queue], queue);
 	qmgr_queue_descs[queue][0] = '\x0';
 #endif
+
+	while ((addr = qmgr_get_entry(queue)))
+		printk(KERN_ERR "qmgr: released queue %i not empty: 0x%08X\n",
+		       queue, addr);
+
 	__raw_writel(0, &qmgr_regs->sram[queue]);
 
 	used_sram_bitmap[0] &= ~mask[0];
@@ -275,10 +281,6 @@ void qmgr_release_queue(unsigned int queue)
 	spin_unlock_irq(&qmgr_lock);
 
 	module_put(THIS_MODULE);
-
-	while ((addr = qmgr_get_entry(queue)))
-		printk(KERN_ERR "qmgr: released queue %i not empty: 0x%08X\n",
-		       queue, addr);
 }
 
 static int qmgr_init(void)
@@ -291,12 +293,6 @@ static int qmgr_init(void)
 				     "IXP4xx Queue Manager");
 	if (mem_res == NULL)
 		return -EBUSY;
-
-	qmgr_regs = ioremap(IXP4XX_QMGR_BASE_PHYS, IXP4XX_QMGR_REGION_SIZE);
-	if (qmgr_regs == NULL) {
-		err = -ENOMEM;
-		goto error_map;
-	}
 
 	/* reset qmgr registers */
 	for (i = 0; i < 4; i++) {
@@ -315,10 +311,12 @@ static int qmgr_init(void)
 	for (i = 0; i < QUEUES; i++)
 		__raw_writel(0, &qmgr_regs->sram[i]);
 
+#ifdef CONFIG_IXP4XX_SUPPORT_425A0
 	if (cpu_is_ixp42x_rev_a0()) {
 		handler1 = qmgr_irq1_a0;
 		handler2 = qmgr_irq2_a0;
 	} else
+#endif
 		handler1 = handler2 = qmgr_irq;
 
 	err = request_irq(IRQ_IXP4XX_QM1, handler1, 0, "IXP4xx Queue Manager",
@@ -346,8 +344,6 @@ static int qmgr_init(void)
 error_irq2:
 	free_irq(IRQ_IXP4XX_QM1, NULL);
 error_irq:
-	iounmap(qmgr_regs);
-error_map:
 	release_mem_region(IXP4XX_QMGR_BASE_PHYS, IXP4XX_QMGR_REGION_SIZE);
 	return err;
 }
@@ -358,7 +354,6 @@ static void qmgr_remove(void)
 	free_irq(IRQ_IXP4XX_QM2, NULL);
 	synchronize_irq(IRQ_IXP4XX_QM1);
 	synchronize_irq(IRQ_IXP4XX_QM2);
-	iounmap(qmgr_regs);
 	release_mem_region(IXP4XX_QMGR_BASE_PHYS, IXP4XX_QMGR_REGION_SIZE);
 }
 
@@ -368,7 +363,6 @@ module_exit(qmgr_remove);
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Krzysztof Halasa");
 
-EXPORT_SYMBOL(qmgr_regs);
 EXPORT_SYMBOL(qmgr_set_irq);
 EXPORT_SYMBOL(qmgr_enable_irq);
 EXPORT_SYMBOL(qmgr_disable_irq);

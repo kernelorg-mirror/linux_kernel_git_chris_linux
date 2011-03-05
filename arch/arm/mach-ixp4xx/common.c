@@ -63,6 +63,11 @@ static struct map_desc ixp4xx_io_desc[] __initdata = {
 		.pfn		= __phys_to_pfn(IXP4XX_PCI_CFG_BASE_PHYS),
 		.length		= IXP4XX_PCI_CFG_REGION_SIZE,
 		.type		= MT_DEVICE
+	}, {	/* Queue Manager */
+		.virtual	= IXP4XX_QMGR_BASE_VIRT,
+		.pfn		= __phys_to_pfn(IXP4XX_QMGR_BASE_PHYS),
+		.length		= IXP4XX_QMGR_REGION_SIZE,
+		.type		= MT_DEVICE
 	},
 #ifdef CONFIG_DEBUG_LL
 	{	/* Debug UART mapping */
@@ -415,7 +420,7 @@ static struct clocksource clocksource_ixp4xx = {
 	.flags		= CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
-unsigned long ixp4xx_timer_freq = FREQ;
+unsigned long ixp4xx_timer_freq = IXP4XX_TIMER_FREQ;
 EXPORT_SYMBOL(ixp4xx_timer_freq);
 static void __init ixp4xx_clocksource_init(void)
 {
@@ -491,7 +496,7 @@ static struct clock_event_device clockevent_ixp4xx = {
 
 static void __init ixp4xx_clockevent_init(void)
 {
-	clockevent_ixp4xx.mult = div_sc(FREQ, NSEC_PER_SEC,
+	clockevent_ixp4xx.mult = div_sc(IXP4XX_TIMER_FREQ, NSEC_PER_SEC,
 					clockevent_ixp4xx.shift);
 	clockevent_ixp4xx.max_delta_ns =
 		clockevent_delta2ns(0xfffffffe, &clockevent_ixp4xx);
