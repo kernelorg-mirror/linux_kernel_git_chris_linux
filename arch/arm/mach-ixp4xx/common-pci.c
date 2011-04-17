@@ -225,7 +225,7 @@ static u32 byte_lane_enable_bits(u32 n, int size)
 	return 0xffffffff;
 }
 
-static int ixp4xx_pci_read_config(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *value)
+int ixp4xx_pci_read_config(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *value)
 {
 	u32 n, byte_enables, addr, data;
 	u8 bus_num = bus->number;
@@ -248,7 +248,7 @@ static int ixp4xx_pci_read_config(struct pci_bus *bus, unsigned int devfn, int w
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int ixp4xx_pci_write_config(struct pci_bus *bus,  unsigned int devfn, int where, int size, u32 value)
+int ixp4xx_pci_write_config(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 value)
 {
 	u32 n, byte_enables, addr, data;
 	u8 bus_num = bus->number;
