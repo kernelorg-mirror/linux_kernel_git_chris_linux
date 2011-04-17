@@ -662,27 +662,6 @@ static const u32 bytemask[] = {
 
 static u8 cs5536_slave_irq_mask = 0xFF; /* IDE and USB only */
 
-static u32 byte_lane_enable_bits(u32 n, int size)
-{
-	if (size == 1)
-		return (0xF & ~BIT(n)) << 4;
-	if (size == 2)
-		return (0xF & ~(BIT(n) | BIT(n + 1))) << 4;
-	if (size == 4)
-		return 0;
-	return 0xFFFFFFFF;
-}
-
-static u32 ixp4xx_config_addr(u8 bus_num, u16 devfn, int where)
-{
-	if (!bus_num)		/* type 0 */
-		return BIT(32 - PCI_SLOT(devfn)) | ((PCI_FUNC(devfn)) << 8) |
-			(where & ~3);
-	else			/* type 1 */
-		return (bus_num << 16) | ((PCI_SLOT(devfn)) << 11) |
-			((PCI_FUNC(devfn)) << 8) | (where & ~3) | 1;
-}
-
 static u32 msr_id(u32 msr)
 {
 	return ((msr << 9) & 0xFF800000) | (msr & 0x3FFF);
@@ -1134,48 +1113,21 @@ static int cs5536_pci_write(unsigned int devfn, int where, int len,
 static int gmlr_pci_read_config(struct pci_bus *bus, unsigned int devfn,
 				int where, int size, u32 *value)
 {
-	u32 n, byte_enables, addr, data;
-	u8 bus_num = bus->number;
-
-	if (bus_num == 0 && PCI_SLOT(devfn) == SLOT_CS5536 &&
+	if (!bus->number && PCI_SLOT(devfn) == SLOT_CS5536 &&
 	    (PCI_FUNC(devfn) != DEV_CS5536_SB || where < 0x10))
 		return cs5536_pci_read(devfn, where, size, value);
 
-	*value = 0xFFFFFFFF;
-	n = where % 4;
-	byte_enables = byte_lane_enable_bits(n, size);
-	if (byte_enables == 0xffffffff)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
-
-	addr = ixp4xx_config_addr(bus_num, devfn, where);
-	if (ixp4xx_pci_read(addr, byte_enables | NP_CMD_CONFIGREAD, &data))
-		return PCIBIOS_DEVICE_NOT_FOUND;
-
-	*value = (data >> (8 * n)) & bytemask[size];
-	return PCIBIOS_SUCCESSFUL;
+	return ixp4xx_pci_read_config(bus, devfn, where, size, value);
 }
 
 static int gmlr_pci_write_config(struct pci_bus *bus, unsigned int devfn,
 				 int where, int size, u32 value)
 {
-	u32 n, byte_enables, addr, data;
-	u8 bus_num = bus->number;
-
-	if (bus_num == 0 && PCI_SLOT(devfn) == SLOT_CS5536 &&
+	if (!bus->number && PCI_SLOT(devfn) == SLOT_CS5536 &&
 	    (PCI_FUNC(devfn) != DEV_CS5536_SB || where < 0x10))
 		return cs5536_pci_write(devfn, where, size, value);
 
-	n = where % 4;
-	byte_enables = byte_lane_enable_bits(n, size);
-	if (byte_enables == 0xFFFFFFFF)
-		return PCIBIOS_BAD_REGISTER_NUMBER;
-
-	addr = ixp4xx_config_addr(bus_num, devfn, where);
-	data = value << (8 * n);
-	if (ixp4xx_pci_write(addr, byte_enables | NP_CMD_CONFIGWRITE, data))
-		return PCIBIOS_DEVICE_NOT_FOUND;
-
-	return PCIBIOS_SUCCESSFUL;
+	return ixp4xx_pci_write_config(bus, devfn, where, size, value);
 }
 
 struct pci_ops gmlr_ops = {
