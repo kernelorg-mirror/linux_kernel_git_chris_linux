@@ -191,6 +191,20 @@ next_hook:
 			kfree_skb(skb);
 		}
 		ret = 0;
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+	} else if ((verdict & NF_VERDICT_MASK) == NF_IMQ_QUEUE) {
+		ret = nf_imq_queue(skb, elem, pf, hook, indev, outdev, okfn,
+			       verdict >> NF_VERDICT_QBITS);
+		if (ret < 0) {
+			if (ret == -ECANCELED)
+				goto next_hook;
+			if (ret == -ESRCH &&
+			   (verdict & NF_VERDICT_FLAG_QUEUE_BYPASS))
+				goto next_hook;
+			kfree_skb(skb);
+		}
+		ret = 0;
+#endif
 	}
 	rcu_read_unlock();
 	return ret;
