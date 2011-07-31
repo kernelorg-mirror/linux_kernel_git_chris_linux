@@ -732,21 +732,21 @@ static inline void setup_cs5536_gpio(u16 value, u16 address)
 	outl(((~(u32)value) << 16) | value, address);
 }
 
-static void cs5536_irq_ack(unsigned int irq)
+static void cs5536_irq_ack(struct irq_data *data)
 {
 #if DEBUG_IRQ
 	printk(KERN_INFO "ACK %u GPIO %X\n",
-	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+	       data->irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
 #endif
 }
 
-static void cs5536_irq_mask(unsigned int irq)
+static void cs5536_irq_mask(struct irq_data *data)
 {
 #if DEBUG_IRQ
 	printk(KERN_INFO "MASK %u GPIO %X\n",
-	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+	       data->irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
 #endif
-	cs5536_slave_irq_mask |= 1 << (irq - IRQ_CS5536_CPU_BASE +
+	cs5536_slave_irq_mask |= 1 << (data->irq - IRQ_CS5536_CPU_BASE +
 				       IRQ_CS5536_SLAVE_PIC_BASE);
 	outb(cs5536_slave_irq_mask, 0xA1);
 #if DEBUG_IRQ
@@ -755,13 +755,13 @@ static void cs5536_irq_mask(unsigned int irq)
 #endif
 }
 
-static void cs5536_irq_unmask(unsigned int irq)
+static void cs5536_irq_unmask(struct irq_data *data)
 {
 #if DEBUG_IRQ
 	printk(KERN_INFO "UNMASK %u GPIO %X\n",
-	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
+	       data->irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8));
 #endif
-	cs5536_slave_irq_mask &= ~(1 << (irq - IRQ_CS5536_CPU_BASE +
+	cs5536_slave_irq_mask &= ~(1 << (data->irq - IRQ_CS5536_CPU_BASE +
 					 IRQ_CS5536_SLAVE_PIC_BASE));
 	outb(cs5536_slave_irq_mask, 0xA1);
 #if DEBUG_IRQ
@@ -778,7 +778,7 @@ static void cs5536_irq_handler(unsigned int irq, struct irq_desc *desc)
 	printk(KERN_INFO "HANDLER %u GPIO %X status %x\n",
 	       irq, !!(readb(IXP4XX_GPIO_BASE_VIRT + 0x0B) & 8), desc->status);
 #endif
-	desc->chip->ack(irq);
+	desc->irq_data.chip->irq_ack(&desc->irq_data);
 	read_msr(0x51400027, &h, &l);
 	if (l & 0x40000000) {
 		struct irq_desc *d = irq_to_desc(IRQ_CS5536_USB);
@@ -812,9 +812,9 @@ static void __init gmlr_pci_preinit(void)
 
 static struct irq_chip cs5536_irqchip = {
 	.name = "CS5536",
-	.ack = cs5536_irq_ack,
-	.mask = cs5536_irq_mask,
-	.unmask = cs5536_irq_unmask,
+	.irq_ack = cs5536_irq_ack,
+	.irq_mask = cs5536_irq_mask,
+	.irq_unmask = cs5536_irq_unmask,
 };
 
 static void __init gmlr_pci_postinit(void)
@@ -935,19 +935,16 @@ static void __init gmlr_pci_postinit(void)
 		write_msr(0x51400020, 0, 0xF00); /* USB uses IRQ15 (Y15) */
 		write_msr(0x51000010, 0x44000030, 0x00000013); /* CIS mode C */
 
-		set_irq_chip(IRQ_CS5536_IDE, &cs5536_irqchip);
-		set_irq_handler(IRQ_CS5536_IDE, handle_level_irq);
+		irq_set_chip_and_handler(IRQ_CS5536_IDE, &cs5536_irqchip, handle_level_irq);
 		set_irq_flags(IRQ_CS5536_IDE, IRQF_VALID);
-		irq_to_desc(IRQ_CS5536_IDE)->status |= IRQ_LEVEL;
+		irq_set_status_flags(IRQ_CS5536_IDE, IRQ_LEVEL);
 
-		set_irq_chip(IRQ_CS5536_USB, &cs5536_irqchip);
-		set_irq_handler(IRQ_CS5536_USB, handle_level_irq);
+		irq_set_chip_and_handler(IRQ_CS5536_USB, &cs5536_irqchip, handle_level_irq);
 		set_irq_flags(IRQ_CS5536_USB, IRQF_VALID);
-		irq_to_desc(IRQ_CS5536_USB)->status |= IRQ_LEVEL;
+		irq_set_status_flags(IRQ_CS5536_USB, IRQ_LEVEL);
 
-		irq_to_desc(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536))->status |=
-			IRQ_LEVEL;
-		set_irq_chained_handler(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536),
+		irq_set_status_flags(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536), IRQ_LEVEL);
+		irq_set_chained_handler(IXP4XX_GPIO_IRQ(GPIO_IRQ_NEC_CS5536),
 					cs5536_irq_handler);
 	}
 }
