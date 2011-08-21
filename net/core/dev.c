@@ -98,6 +98,9 @@
 #include <net/net_namespace.h>
 #include <net/sock.h>
 #include <linux/rtnetlink.h>
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+#include <linux/imq.h>
+#endif
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/stat.h>
@@ -2108,12 +2111,21 @@ int dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev,
 		if (dev->priv_flags & IFF_XMIT_DST_RELEASE)
 			skb_dst_drop(skb);
 
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+		if (!list_empty(&ptype_all) &&
+					!(skb->imq_flags & IMQ_F_ENQUEUE))
+#else
 		if (!list_empty(&ptype_all))
+#endif
 			dev_queue_xmit_nit(skb, dev);
 
 		skb_orphan_try(skb);
 
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+		features = skb->dev ? netif_skb_features(skb) : dev->features;
+#else
 		features = netif_skb_features(skb);
+#endif
 
 		if (vlan_tx_tag_present(skb) &&
 		    !(features & NETIF_F_HW_VLAN_TX)) {
@@ -2280,8 +2292,7 @@ static inline int get_xps_queue(struct net_device *dev, struct sk_buff *skb)
 #endif
 }
 
-static struct netdev_queue *dev_pick_tx(struct net_device *dev,
-					struct sk_buff *skb)
+static struct netdev_queue *dev_pick_tx(struct net_device *dev, struct sk_buff *skb)
 {
 	int queue_index;
 	const struct net_device_ops *ops = dev->netdev_ops;

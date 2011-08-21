@@ -30,6 +30,15 @@ extern int nf_queue(struct sk_buff *skb,
 		    struct net_device *outdev,
 		    int (*okfn)(struct sk_buff *),
 		    unsigned int queuenum);
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+extern int nf_imq_queue(struct sk_buff *skb,
+		    struct list_head *elem,
+		    u_int8_t pf, unsigned int hook,
+		    struct net_device *indev,
+		    struct net_device *outdev,
+		    int (*okfn)(struct sk_buff *),
+		    unsigned int queuenum);
+#endif
 extern int __init netfilter_queue_init(void);
 
 /* nf_log.c */

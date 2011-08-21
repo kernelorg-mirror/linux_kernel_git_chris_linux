@@ -19,9 +19,10 @@
 
 #define IO_SPACE_LIMIT 0x0000ffff
 
-extern int (*ixp4xx_pci_read)(u32 addr, u32 cmd, u32* data);
+extern int ixp4xx_pci_read(u32 addr, u32 cmd, u32* data);
 extern int ixp4xx_pci_write(u32 addr, u32 cmd, u32 data);
-
+int ixp4xx_pci_read_config(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *value);
+int ixp4xx_pci_write_config(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 value);
 
 /*
  * IXP4xx provides two methods of accessing PCI memory space:

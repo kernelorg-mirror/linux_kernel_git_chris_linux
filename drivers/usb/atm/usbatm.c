@@ -329,9 +329,16 @@ static void usbatm_extract_one_cell(struct usbatm_data *instance, unsigned char 
 
 	/* OAM F5 end-to-end */
 	if (pti == ATM_PTI_E2EF5) {
-		if (printk_ratelimit())
+		if (printk_ratelimit()) {
+			char buffer[ATM_CELL_SIZE * 3 + 1];
+			int i;
 			atm_warn(instance, "%s: OAM not supported (vpi %d, vci %d)!\n",
 				__func__, vpi, vci);
+
+			for (i = 0; i < ATM_CELL_SIZE; i++)
+				sprintf(buffer + i * 3, " %02X", source[i]);
+			atm_warn(instance, "%s:%s\n", __func__, buffer);
+		}
 		atomic_inc(&vcc->stats->rx_err);
 		return;
 	}
