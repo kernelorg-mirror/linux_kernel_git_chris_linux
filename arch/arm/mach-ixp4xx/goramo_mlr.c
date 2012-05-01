@@ -10,6 +10,7 @@
 #include <linux/io.h>
 #include <linux/irq.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/pci.h>
 #include <linux/serial_8250.h>
 #include <asm/mach-types.h>

@@ -14,6 +14,7 @@
 #include <linux/dmapool.h>
 #include <linux/crypto.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/rtnetlink.h>
 #include <linux/interrupt.h>
 #include <linux/spinlock.h>
