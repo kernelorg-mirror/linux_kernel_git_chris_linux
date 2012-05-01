@@ -2920,7 +2920,7 @@ static int __devinit hss_init_one(struct platform_device *pdev)
 	for (i = 0; i < ARRAY_SIZE(hss_attrs); i++)
 		BUG_ON(device_create_file(port->dev, &hss_attrs[i]));
 
-	netdev_info(dev, "HSS-%i\n", port->id);
+	netdev_info(dev, "initialized\n");
 	return 0;
 
 err_free_netdev:
