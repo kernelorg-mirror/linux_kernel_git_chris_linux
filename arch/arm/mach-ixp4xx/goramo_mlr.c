@@ -529,14 +529,19 @@ static void __init gmlr_init(void)
 	set_control(CONTROL_HSS0_DTR_N, 1);
 	set_control(CONTROL_HSS1_DTR_N, 1);
 	set_control(CONTROL_EEPROM_WC_N, 1);
+
+	/* Some versions drive PCI RESET through a capacitor. We have to
+	   raise the signal first to be effective */
+	set_control(CONTROL_PCI_RESET_N, 1);
+	output_control_nolock();
+	msleep(1);
+
 	set_control(CONTROL_PCI_RESET_N, 0);
 	output_control_nolock();
-
 	msleep(1);
 
 	set_control(CONTROL_PCI_RESET_N, 1);
 	output_control_nolock();
-
 	msleep(100);	      /* Wait for PCI devices to initialize */
 
 	switch (hw_bits & (CFG_HW_HAS_UART0 | CFG_HW_HAS_UART1)) {
