@@ -14,8 +14,9 @@
 #define __ASM_ARM_ARCH_IO_H
 
 #include <linux/bitops.h>
-
 #include <mach/hardware.h>
+
+struct pci_bus;
 
 extern int (*ixp4xx_pci_read)(u32 addr, u32 cmd, u32* data);
 extern int ixp4xx_pci_write(u32 addr, u32 cmd, u32 data);
