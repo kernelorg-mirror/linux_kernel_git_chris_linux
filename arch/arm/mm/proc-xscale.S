@@ -23,13 +23,13 @@
 #include <linux/linkage.h>
 #include <linux/init.h>
 #include <asm/assembler.h>
+#include <asm/cp15.h>
 #include <asm/domain.h>
 #include <asm/hwcap.h>
 #include <asm/pgtable.h>
 #include <asm/pgtable-hwdef.h>
 #include <asm/page.h>
 #include <asm/ptrace.h>
-#include <asm/system.h>
 #include "proc-macros.S"
 
 /*
@@ -657,7 +657,7 @@ __xscale_setup_moved:
 	b	__xscale_turn_mmu_on
 
 bss_start:
-	.word __bss_start - PAGE_OFFSET + PHYS_OFFSET
+	.word __bss_start - PAGE_OFFSET + CONFIG_PHYS_OFFSET
 
 xscale_swap:
 1:	ldr	r0, [r6]
