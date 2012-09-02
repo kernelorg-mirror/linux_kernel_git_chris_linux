@@ -273,6 +273,9 @@ __create_page_tables:
 	add	r0, r4, r3
 	mov	r3, r7, lsr #SECTION_SHIFT
 	ldr	r7, [r10, #PROCINFO_IO_MMUFLAGS] @ io_mmuflags
+#if defined(CONFIG_ARCH_IXP4XX) && defined(CONFIG_CPU_LITTLE_ENDIAN_DATA_COHERENT)
+	and	r7, r7, #~0x200			@ P bit - region is value-coherent
+#endif
 	orr	r3, r7, r3, lsl #SECTION_SHIFT
 #ifdef CONFIG_ARM_LPAE
 	mov	r7, #1 << (54 - 32)		@ XN
