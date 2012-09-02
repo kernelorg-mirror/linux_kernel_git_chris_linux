@@ -611,7 +611,7 @@ __xscale_setup:
 	mov	pc, r7
 
 __xscale_setup_moved:
-	mov	r6, r4				@ base address to swap
+	mov	r6, #0				@ base address to swap
 	ldr	r7, bss_start			@ end address
 	bl	xscale_swap
 
