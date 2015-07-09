@@ -1,13 +1,13 @@
 /*
-  Copyright (C) 2015 Industrial Research Institute for Automation
-  and Measurements PIAP
-
-  Written by Krzysztof Hałasa.
-
-  This program is free software; you can redistribute it and/or modify it
-  under the terms of version 2 of the GNU General Public License
-  as published by the Free Software Foundation.
-*/
+ * Copyright (C) 2015 Industrial Research Institute for Automation
+ * and Measurements PIAP
+ *
+ * Written by Krzysztof Hałasa.
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of version 2 of the GNU General Public License
+ * as published by the Free Software Foundation.
+ */
 
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -68,15 +68,13 @@ static int tw686x_probe(struct pci_dev *pci_dev,
 		goto disable;
 	}
 
-	if (!request_mem_region(pci_resource_start(pci_dev, 0),
-				pci_resource_len(pci_dev, 0), dev->name)) {
+	err = pci_request_regions(pci_dev, dev->name);
+	if (err < 0) {
 		pr_err("%s: Unable to get MMIO region\n", dev->name);
-		err = -EBUSY;
 		goto disable;
 	}
 
-	dev->mmio = ioremap_nocache(pci_resource_start(pci_dev, 0),
-				    pci_resource_len(pci_dev, 0));
+	dev->mmio = pci_ioremap_bar(pci_dev, 0);
 	if (!dev->mmio) {
 		pr_err("%s: Unable to remap MMIO region\n", dev->name);
 		err = -EIO;
@@ -158,19 +156,8 @@ static struct pci_driver tw686x_pci_driver = {
 	.remove = tw686x_remove,
 };
 
-static int tw686x_init(void)
-{
-	return pci_register_driver(&tw686x_pci_driver);
-}
-
-static void tw686x_exit(void)
-{
-	pci_unregister_driver(&tw686x_pci_driver);
-}
-
 MODULE_DESCRIPTION("Driver for video frame grabber cards based on Intersil/Techwell TW686[4589]");
 MODULE_AUTHOR("Krzysztof Halasa");
 MODULE_LICENSE("GPL v2");
 MODULE_DEVICE_TABLE(pci, tw686x_pci_tbl);
-module_init(tw686x_init);
-module_exit(tw686x_exit);
+module_pci_driver(tw686x_pci_driver);

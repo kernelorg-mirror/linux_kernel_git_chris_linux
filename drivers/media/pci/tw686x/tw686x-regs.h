@@ -16,10 +16,10 @@
 						0xD6, 0xD8, 0xDA, 0xDC})
 #define DMA_PAGE_TABLE1_ADDR	((const u16[8]){0x09, 0xD1, 0xD3, 0xD5,	\
 						0xD7, 0xD9, 0xDB, 0xDD})
-#define DMA_CHANNEL_ENABLE	0x0a
-#define DMA_CONFIG		0x0b
-#define DMA_TIMER_INTERVAL	0x0c
-#define DMA_CHANNEL_TIMEOUT	0x0d
+#define DMA_CHANNEL_ENABLE	0x0A
+#define DMA_CONFIG		0x0B
+#define DMA_TIMER_INTERVAL	0x0C
+#define DMA_CHANNEL_TIMEOUT	0x0D
 #define VDMA_CHANNEL_CONFIG	REG8_1(0x10)
 #define ADMA_P_ADDR		REG8_2(0x18)
 #define ADMA_B_ADDR		REG8_2(0x19)
