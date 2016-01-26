@@ -417,18 +417,14 @@ static int tw686x_querycap(struct file *file, void *priv,
 static int tw686x_s_std(struct file *file, void *priv, v4l2_std_id id)
 {
 	struct tw686x_video_channel *vc = video_drvdata(file);
-	unsigned std, count = 0;
-	u32 sdt, std_mask = 0;
+	unsigned cnt;
+	u32 sdt = 0; /* default */
 
-	for (std = 0; std > ARRAY_SIZE(video_standards); std++)
-		if (id & video_standards[std]) {
-			sdt = std;
-			std_mask |= 1 << std;
-			count++;
+	for (cnt = 0; cnt < ARRAY_SIZE(video_standards); cnt++)
+		if (id & video_standards[cnt]) {
+			sdt = cnt;
+			break;
 		}
-
-	if (count != 1)
-		return -EINVAL; /* must request exactly one standard */
 
 	reg_write(vc->dev, SDT[vc->ch], sdt);
 	vc->video_standard = video_standards[sdt];
@@ -658,12 +654,13 @@ int tw686x_video_init(struct tw686x_dev *dev)
 		vc->dev = dev;
 		vc->ch = ch;
 
-		/* default settings */
+		/* default settings: NTSC */
 		vc->format = &formats[0];
-		vc->video_standard = V4L2_STD_PAL;
-		vc->field = V4L2_FIELD_SEQ_TB;
+		vc->video_standard = V4L2_STD_NTSC;
+		reg_write(vc->dev, SDT[vc->ch], 0);
+		vc->field = V4L2_FIELD_SEQ_BT;
 		vc->width = 704;
-		vc->height = 576;
+		vc->height = 480;
 
 		for (n = 0; n < 2; n++) {
 			void *cpu;
@@ -733,8 +730,7 @@ int tw686x_video_init(struct tw686x_dev *dev)
 		vdev->release = video_device_release;
 		vdev->v4l2_dev = &dev->v4l2_dev;
 		vdev->queue = &vc->vidq;
-		vdev->tvnorms = V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM |
-			V4L2_STD_PAL_60;
+		vdev->tvnorms = V4L2_STD_ALL;
 		vdev->minor = -1;
 		vdev->lock = &vc->vb_mutex;
 
