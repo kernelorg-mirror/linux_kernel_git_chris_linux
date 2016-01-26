@@ -466,6 +466,34 @@ static int tw686x_g_parm(struct file *file, void *priv,
 	return 0;
 }
 
+static int tw686x_enum_input(struct file *file, void *priv,
+			     struct v4l2_input *inp)
+{
+	/* the chip has internal multiplexer, support can be added
+	   if the actual hw uses it */
+	if (inp->index)
+		return -EINVAL;
+
+	snprintf(inp->name, sizeof(inp->name), "Composite");
+	inp->type = V4L2_INPUT_TYPE_CAMERA;
+  	inp->std = V4L2_STD_ALL;
+	inp->capabilities = V4L2_IN_CAP_STD;
+	return 0;
+}
+
+static int tw686x_g_input(struct file *file, void *priv, unsigned *v)
+{
+	*v = 0;
+	return 0;
+}
+
+static int tw686x_s_input(struct file *file, void *priv, unsigned v)
+{
+	if (v)
+		return -EINVAL;
+	return 0;
+}
+
 const struct v4l2_file_operations tw686x_video_fops = {
 	.owner		= THIS_MODULE,
 	.open		= v4l2_fh_open,
@@ -492,6 +520,9 @@ const struct v4l2_ioctl_ops tw686x_video_ioctl_ops = {
 	.vidioc_g_std			= tw686x_g_std,
 	.vidioc_s_std			= tw686x_s_std,
 	.vidioc_g_parm			= tw686x_g_parm,
+	.vidioc_enum_input		= tw686x_enum_input,
+	.vidioc_g_input			= tw686x_g_input,
+	.vidioc_s_input			= tw686x_s_input,
 	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
 	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
 };
