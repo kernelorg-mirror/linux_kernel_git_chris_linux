@@ -416,7 +416,7 @@ static int tw686x_querycap(struct file *file, void *priv,
 
 static int tw686x_s_std(struct file *file, void *priv, v4l2_std_id id)
 {
-	struct tw686x_video_channel *vc = priv;
+	struct tw686x_video_channel *vc = video_drvdata(file);
 	unsigned std, count = 0;
 	u32 sdt, std_mask = 0;
 
@@ -437,7 +437,7 @@ static int tw686x_s_std(struct file *file, void *priv, v4l2_std_id id)
 
 static int tw686x_g_std(struct file *file, void *priv, v4l2_std_id *id)
 {
-	struct tw686x_video_channel *vc = priv;
+	struct tw686x_video_channel *vc = video_drvdata(file);
 
 	*id = vc->video_standard;
 	return 0;
@@ -457,7 +457,7 @@ static int tw686x_enum_fmt_vid_cap(struct file *file, void *priv,
 static int tw686x_g_parm(struct file *file, void *priv,
 			 struct v4l2_streamparm *sp)
 {
-	struct tw686x_video_channel *vc = priv;
+	struct tw686x_video_channel *vc = video_drvdata(file);
 
 	if (sp->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
