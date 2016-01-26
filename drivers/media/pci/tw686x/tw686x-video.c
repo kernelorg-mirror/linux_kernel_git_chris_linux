@@ -379,6 +379,7 @@ static int tw686x_try_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.height = height;
 	f->fmt.pix.bytesperline = f->fmt.pix.width * format->depth / 8;
 	f->fmt.pix.sizeimage = f->fmt.pix.height * f->fmt.pix.bytesperline;
+	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
 
 	return 0;
 }
