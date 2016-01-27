@@ -44,7 +44,7 @@ struct vdma_desc {
 };
 
 struct tw686x_vb2_buf {
-	struct vb2_buffer vb;
+	struct vb2_v4l2_buffer vb;
 	struct list_head list;
 };
 
