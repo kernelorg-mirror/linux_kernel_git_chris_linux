@@ -280,6 +280,7 @@ static int tw686x_start_streaming(struct vb2_queue *vq, unsigned int count)
 	spin_unlock(&vc->qlock);
 
 	dev->video_active |= 1 << vc->ch;
+	vc->seq = 0;
 	dma_ch_mask = reg_read(dev, DMA_CHANNEL_ENABLE) | (1 << vc->ch);
 	reg_write(dev, DMA_CHANNEL_ENABLE, dma_ch_mask);
 	reg_write(dev, DMA_CMD, (1 << 31) | dma_ch_mask);
@@ -591,6 +592,10 @@ static int video_thread(void *arg)
 					vb = &vc->curr_bufs[n]->vb;
 					v4l2_get_timestamp(&vb->timestamp);
 					vb->field = vc->field;
+					if (V4L2_FIELD_HAS_BOTH(vc->field))
+						vb->sequence = vc->seq++;
+					else
+						vb->sequence = (vc->seq++) / 2;
 					vb2_set_plane_payload(&vb->vb2_buf, 0, vc->width * vc->height * vc->format->depth / 8);
 					vb2_buffer_done(&vb->vb2_buf, VB2_BUF_STATE_DONE);
 				}

@@ -66,6 +66,7 @@ struct tw686x_video_channel {
 	v4l2_std_id video_standard;
 	unsigned width, height;
 	enum v4l2_field field; /* supported TOP, BOTTOM, SEQ_TB and SEQ_BT */
+	unsigned seq;	       /* video field or frame counter */
 	unsigned ch;
 };
 
