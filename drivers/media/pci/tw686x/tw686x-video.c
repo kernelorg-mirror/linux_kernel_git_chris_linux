@@ -551,7 +551,7 @@ static int video_thread(void *arg)
 		for (ch = 0; ch < max_channels(dev); ch++) {
 			struct tw686x_video_channel *vc;
 			unsigned long flags;
-			u32 request, n;
+			u32 request, n, stat = VB2_BUF_STATE_DONE;
 
 			vc = &dev->video_channels[ch];
 			if (!(dev->video_active & (1 << ch)))
@@ -581,28 +581,29 @@ static int video_thread(void *arg)
 				reg_write(dev, DMA_CMD, reg & ~(1 << ch));
 				reg_write(dev, DMA_CMD, reg);
 				spin_unlock_irqrestore(&dev->irq_lock, flags);
-			} else {
-				/* handle video stream */
-				mutex_lock(&vc->vb_mutex);
-				spin_lock(&vc->qlock);
-				n = !!(reg_read(dev, PB_STATUS) & (1 << ch));
-				if (vc->curr_bufs[n]) {
-					struct vb2_v4l2_buffer *vb;
-
-					vb = &vc->curr_bufs[n]->vb;
-					v4l2_get_timestamp(&vb->timestamp);
-					vb->field = vc->field;
-					if (V4L2_FIELD_HAS_BOTH(vc->field))
-						vb->sequence = vc->seq++;
-					else
-						vb->sequence = (vc->seq++) / 2;
-					vb2_set_plane_payload(&vb->vb2_buf, 0, vc->width * vc->height * vc->format->depth / 8);
-					vb2_buffer_done(&vb->vb2_buf, VB2_BUF_STATE_DONE);
-				}
-				setup_descs(vc, n);
-				spin_unlock(&vc->qlock);
-				mutex_unlock(&vc->vb_mutex);
+				stat = VB2_BUF_STATE_ERROR;
 			}
+
+			/* handle video stream */
+			mutex_lock(&vc->vb_mutex);
+			spin_lock(&vc->qlock);
+			n = !!(reg_read(dev, PB_STATUS) & (1 << ch));
+			if (vc->curr_bufs[n]) {
+				struct vb2_v4l2_buffer *vb;
+
+				vb = &vc->curr_bufs[n]->vb;
+				v4l2_get_timestamp(&vb->timestamp);
+				vb->field = vc->field;
+				if (V4L2_FIELD_HAS_BOTH(vc->field))
+					vb->sequence = vc->seq++;
+				else
+					vb->sequence = (vc->seq++) / 2;
+				vb2_set_plane_payload(&vb->vb2_buf, 0, vc->width * vc->height * vc->format->depth / 8);
+				vb2_buffer_done(&vb->vb2_buf, stat);
+			}
+			setup_descs(vc, n);
+			spin_unlock(&vc->qlock);
+			mutex_unlock(&vc->vb_mutex);
 		}
 		try_to_freeze();
 	}
