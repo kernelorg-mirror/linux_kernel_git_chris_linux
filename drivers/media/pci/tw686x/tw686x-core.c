@@ -61,7 +61,7 @@ static int tw686x_probe(struct pci_dev *pci_dev,
 
 	pci_set_master(pci_dev);
 
-	if (!pci_dma_supported(pci_dev, DMA_BIT_MASK(32))) {
+	if (pci_set_dma_mask(pci_dev, DMA_BIT_MASK(32))) {
 		pr_err("%s: 32-bit PCI DMA not supported\n", dev->name);
 		return -EIO;
 	}
